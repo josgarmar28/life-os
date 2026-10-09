@@ -1,0 +1,19 @@
+# Secretos y entornos locales: nunca al repositorio
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+supabase/.temp/
+supabase/.branches/
+
+# Dependencias y artefactos
+node_modules/
+dist/
+coverage/
+
+# Datos personales: solo datos sintéticos en el repositorio
+data/
+exports/
+*.csv
+!supabase/**/*.csv
