@@ -1,23 +1,23 @@
 # ADR-0001 — Decisiones iniciales de arquitectura
 
 - **Fecha:** 2026-10-09
-- **Estado global:** propuesta. Cada decisión indica su estado individual; ninguna de las marcadas "pendiente" debe tratarse como aceptada.
+- **Estado global:** aprobada en bloque por martagon el 2026-10-09 (mensaje en el hilo del proyecto), salvo D-04 y D-14, que siguen pendientes por diseño. Cada decisión indica su estado individual.
 - **Detalle y justificación:** `docs/spec/SPEC-001-especificacion-tecnica-v0.1.md` y `docs/spec/SPEC-002-adenda-v0.2.md`.
 
 | ID | Decisión | Alternativa descartada | Estado |
 |---|---|---|---|
-| D-01 | PostgreSQL (Supabase) como única fuente de verdad | Hojas de cálculo + varias bases | Pendiente de aprobación |
-| D-02 | Supabase Pro antes de cargar datos reales (backups, sin pausa). Plan gratuito solo con datos sintéticos | Plan gratuito en producción (pausa a 1 semana, sin backups, 500 MB) | Pendiente de aprobación |
-| D-03 | Lógica en TypeScript/Edge Functions + `pg_cron`; sin n8n el primer día | n8n desde el inicio (Community sin Git/entornos; Cloud Starter 2.500 ejecuciones/mes) | Pendiente de aprobación |
+| D-01 | PostgreSQL (Supabase) como única fuente de verdad | Hojas de cálculo + varias bases | Aprobada (2026-10-09) |
+| D-02 | Supabase Pro antes de cargar datos reales (backups, sin pausa). Plan gratuito solo con datos sintéticos | Plan gratuito en producción (pausa a 1 semana, sin backups, 500 MB) | Aprobada (2026-10-09) |
+| D-03 | Lógica en TypeScript/Edge Functions + `pg_cron`; sin n8n el primer día | n8n desde el inicio (Community sin Git/entornos; Cloud Starter 2.500 ejecuciones/mes) | Aprobada (2026-10-09) |
 | D-04 | Cómo ejecutar n8n cuando haga falta | — | Pospuesta a la fase P3 |
-| D-05 | Ledger inmutable (`raw`) + observaciones con calidad (`measured/manual/estimated`) y correcciones por `supersedes_id` | Tablas por métrica; JSONB sin esquema | Pendiente de aprobación |
-| D-06 | Dos agentes al inicio (coordinador y salud) | Un agente por subdominio | Pendiente de aprobación |
-| D-07 | Niveles de acción 0–3 aplicados en BD; **sin política de auto-ejecución**: toda acción requiere aprobación | Autorización por prompt | Ajustada según la respuesta del usuario (aprobación siempre) |
-| D-08 | Monorepo, ramas cortas con PR, migraciones solo hacia delante | Varios repositorios | Pendiente de aprobación |
+| D-05 | Ledger inmutable (`raw`) + observaciones con calidad (`measured/manual/estimated`) y correcciones por `supersedes_id` | Tablas por métrica; JSONB sin esquema | Aprobada (2026-10-09) |
+| D-06 | Dos agentes al inicio (coordinador y salud) | Un agente por subdominio | Aprobada (2026-10-09) |
+| D-07 | Niveles de acción 0–3 aplicados en BD; **sin política de auto-ejecución**: toda acción requiere aprobación | Autorización por prompt | Aprobada con el ajuste pedido por el usuario (aprobación siempre) (2026-10-09) |
+| D-08 | Monorepo, ramas cortas con PR, migraciones solo hacia delante | Varios repositorios | Aprobada (2026-10-09) |
 | D-09 | Finanzas: sin conexiones a bancos; solo datos entregados por el usuario; solo lectura | Agregadores bancarios | **Confirmada por el usuario** |
-| D-10/D-11 | Interfaz = app de Claude + conector MCP remoto propio; aprobaciones en página aparte | Bot de mensajería + app propia | Pendiente de aprobación |
-| D-12 | Registro de evidencia con DOI/PMID verificado por código | Citas libres del modelo | Pendiente de aprobación |
-| D-13 | Fotos corporales: bucket privado, retención corta, envío a Claude solo bajo petición | — | Pendiente de aprobación |
+| D-10/D-11 | Interfaz = app de Claude + conector MCP remoto propio; aprobaciones en página aparte | Bot de mensajería + app propia | Aprobada (2026-10-09) |
+| D-12 | Registro de evidencia con DOI/PMID verificado por código | Citas libres del modelo | Aprobada (2026-10-09) |
+| D-13 | Fotos corporales: bucket privado, retención corta, envío a Claude solo bajo petición | — | Aprobada (2026-10-09) |
 | D-14 | Avisos mediante adaptador intercambiable; correo como opción por defecto | Notificaciones push propias | Pendiente de prueba en P2 |
 
 ## Implementado en P0 (esta rama)
