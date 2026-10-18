@@ -10,8 +10,9 @@ Reside en Pully (Suiza). Gimnasio: Elevate Gym. iPhone. Reloj Amazfit (Zepp). B�
 
 ## Decisiones
 - **Confirmadas:** Claude como plataforma de IA; automatización máxima con aprobación humana; servicios gestionados; coste mínimo; finanzas sin conexiones (D-09); creación del repositorio y del proyecto de Supabase autorizada.
+- **Aprobadas por el usuario (2026-10-09):** D-01, D-02 (sustituida por D-15), D-03, D-05, D-06, D-07, D-08, D-10/D-11, D-12, D-13.
+- **Pendientes por diseño:** D-04 (n8n, fase P3) y D-14 (avisos, se prueba en P2). Ver `docs/adr/0001-decisiones-iniciales.md`.
 - **Aceptadas 18-oct (ADR-0002):** dashboard único con motor de áreas genérico, entrada de datos solo en el dashboard, conector MCP con OAuth de Supabase, plan gratuito con copia cifrada propia (sustituye D-02), arranque en enero sin histórico, "eliminar" = archivar.
-- **Pendientes de aprobación:** D-01, D-03…D-08, D-10…D-14 (ver `docs/adr/0001-decisiones-iniciales.md`).
 
 ## Arquitectura vigente
 Ver SPEC-002 §3. Resumen: app de Claude + conector MCP propio (interactivo) y routines/`pg_cron` (programado), ambos sobre el mismo backend en Supabase con permisos por rol.
@@ -20,11 +21,10 @@ Ver SPEC-002 §3. Resumen: app de Claude + conector MCP propio (interactivo) y r
 
 | Elemento | Estado real |
 |---|---|
-| Repositorio `josgarmar28/life-os` | Creado por el usuario, adjuntado a la sesión |
+| Repositorio `josgarmar28/life-os` | Creado por el usuario; PR #1 (P0) fusionado en `main`; CI en verde |
 | Esquema base (`raw`, `health`, `ops`) | **Escrito y probado en PostgreSQL 16 local** (3 archivos de prueba, con comprobación de mutaciones). **No aplicado a ningún Supabase** |
-| CI (`.github/workflows/ci.yml`) | Escrito; **sin ejecutar todavía** en GitHub |
+| CI (`.github/workflows/ci.yml`) | Ejecutada en GitHub en el PR #1: verde |
 | Proyecto Supabase | Creado por el usuario (según su mensaje); **no verificado ni conectado**. Sin acceso desde esta sesión |
-| PR #1 (P0) y #2 | Fusionados el 2026-10-09 con CI en verde |
 | Motor de áreas (`core`, migración 2026-10-18) y áreas iniciales | **Escrito y probado en PostgreSQL 16 local** (pruebas 40 y 50). **No aplicado** |
 | Dashboard (`apps/dashboard`, PWA) | **Escrito**; compila y pasa sus pruebas. **No desplegado** |
 | Conector MCP (`supabase/functions/mcp`) | **Escrito**; pruebas del protocolo y comprobación con Deno. **No desplegado** |
@@ -36,8 +36,8 @@ Ver SPEC-002 §3. Resumen: app de Claude + conector MCP propio (interactivo) y r
 - [x] Especificación v0.1 y adenda v0.2
 - [x] Estructura del repositorio y reglas
 - [x] Esquema base de seguridad, auditoría, propuestas/aprobaciones/ejecución, ingesta y observaciones
-- [ ] Revisión y fusión del PR de P0 por el usuario
-- [ ] Ejecución de CI en GitHub
+- [x] Revisión y fusión del PR de P0 por el usuario (PR #1)
+- [x] Ejecución de CI en GitHub (verde)
 - [ ] Verificación del esquema contra un Supabase real (ver runbook)
 - [x] Dashboard, motor de áreas, conector y despliegue gratuito escritos (PR del 18-oct)
 - [ ] Puesta en marcha por el usuario: `docs/runbooks/dashboard-puesta-en-marcha.md`
