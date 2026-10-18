@@ -2,7 +2,7 @@
 
 Sistema operativo personal: una base de datos única (Supabase/PostgreSQL), lógica determinista en TypeScript y agentes de Claude con permisos mínimos, bajo aprobación humana.
 
-> **Estado:** fase P0 (fundamentos). Hoy el repositorio contiene el diseño, el esquema base de la base de datos y sus pruebas. **No hay despliegue, no hay integraciones y no hay datos personales.**
+> **Estado:** dashboard, motor de áreas y conector de Claude escritos y probados; **sin desplegar** hasta que el usuario siga `docs/runbooks/dashboard-puesta-en-marcha.md`. No hay datos personales en el repositorio.
 
 ## Contenido
 
@@ -15,6 +15,17 @@ Sistema operativo personal: una base de datos única (Supabase/PostgreSQL), lóg
 | `supabase/migrations/` | Migraciones SQL, solo hacia delante. |
 | `supabase/tests/` | Pruebas SQL de seguridad y flujos (corren en CI). |
 | `scripts/test-db.sh` | Aplica migraciones y pruebas a una base **desechable**. |
+| `supabase/seed/` | Áreas y cuestionarios iniciales (solo estructura). |
+| `supabase/functions/mcp/` | Conector MCP para Claude (Edge Function con OAuth de Supabase). |
+| `supabase/functions/_shared/` | TypeScript puro compartido por el conector y el dashboard (modelo, estadísticas). |
+| `apps/dashboard/` | Dashboard web instalable (React + Vite, PWA). |
+| `.github/workflows/` | `ci` (pruebas), `deploy` y `bootstrap` (manuales), `backup` (copia diaria cifrada). |
+
+## Probar el dashboard en local
+
+```bash
+cd apps/dashboard && npm ci && npm test && npm run build
+```
 
 ## Probar la base de datos en local
 

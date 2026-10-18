@@ -7,7 +7,7 @@
 | ID | Decisión | Alternativa descartada | Estado |
 |---|---|---|---|
 | D-01 | PostgreSQL (Supabase) como única fuente de verdad | Hojas de cálculo + varias bases | Pendiente de aprobación |
-| D-02 | Supabase Pro antes de cargar datos reales (backups, sin pausa). Plan gratuito solo con datos sintéticos | Plan gratuito en producción (pausa a 1 semana, sin backups, 500 MB) | Pendiente de aprobación |
+| D-02 | Supabase Pro antes de cargar datos reales (backups, sin pausa). Plan gratuito solo con datos sintéticos | Plan gratuito en producción (pausa a 1 semana, sin backups, 500 MB) | **Sustituida por D-15 (ADR-0002)**: plan gratuito con copia propia |
 | D-03 | Lógica en TypeScript/Edge Functions + `pg_cron`; sin n8n el primer día | n8n desde el inicio (Community sin Git/entornos; Cloud Starter 2.500 ejecuciones/mes) | Pendiente de aprobación |
 | D-04 | Cómo ejecutar n8n cuando haga falta | — | Pospuesta a la fase P3 |
 | D-05 | Ledger inmutable (`raw`) + observaciones con calidad (`measured/manual/estimated`) y correcciones por `supersedes_id` | Tablas por métrica; JSONB sin esquema | Pendiente de aprobación |

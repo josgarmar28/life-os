@@ -1,0 +1,7 @@
+# Configuración mínima para el CLI de Supabase (enlace al proyecto y despliegue de funciones).
+# El project_id real lo pasa el workflow (secreto SUPABASE_PROJECT_REF), nunca se versiona.
+project_id = "life-os"
+
+[functions.mcp]
+# La función verifica el token ella misma (necesita responder 401 con WWW-Authenticate).
+verify_jwt = false

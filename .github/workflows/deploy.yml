@@ -1,0 +1,103 @@
+# Despliegue de LIFE OS a SU Supabase y a Cloudflare Pages.
+# Solo se ejecuta a mano (Actions → deploy → Run workflow): lanzarlo ES su aprobación.
+# Orden: copia de seguridad → migraciones → conector MCP → dashboard.
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Escribe DESPLEGAR para confirmar'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifeos-prod
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirmación
+        if: inputs.confirm != 'DESPLEGAR'
+        run: echo "Confirmación incorrecta; no se toca nada." && exit 1
+      - name: Solo desde main
+        if: github.ref != 'refs/heads/main'
+        run: echo "El despliegue solo se lanza desde main." && exit 1
+
+  backup:
+    needs: guard
+    uses: ./.github/workflows/backup.yml
+    secrets: inherit
+
+  deploy:
+    needs: backup
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      PAGES_PROJECT: ${{ vars.PAGES_PROJECT || 'lifeos-panel' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.121.0
+
+      - name: Comprobar configuración
+        run: |
+          for v in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD REF; do
+            [ -n "${!v}" ] || { echo "Falta $v (ver docs/runbooks/dashboard-puesta-en-marcha.md)"; exit 1; }
+          done
+
+      - name: Enlazar el proyecto
+        run: supabase link --project-ref "$REF" --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Aplicar migraciones pendientes
+        run: supabase db push --password "$SUPABASE_DB_PASSWORD" --yes
+
+      - name: Desplegar el conector MCP
+        run: supabase functions deploy mcp --no-verify-jwt --project-ref "$REF"
+
+      - name: Clave pública del proyecto
+        id: key
+        run: |
+          KEY=$(supabase projects api-keys --project-ref "$REF" -o json \
+            | jq -r '[.[] | select(.name == "anon" or .type == "publishable")][0].api_key // empty')
+          [ -n "$KEY" ] || { echo "No se encontró la clave pública (anon/publishable)."; exit 1; }
+          echo "::add-mask::$KEY"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/dashboard/package-lock.json
+
+      - name: Compilar el dashboard
+        working-directory: apps/dashboard
+        env:
+          VITE_SUPABASE_URL: https://${{ vars.SUPABASE_PROJECT_REF }}.supabase.co
+          VITE_SUPABASE_ANON_KEY: ${{ steps.key.outputs.key }}
+        run: npm ci && npm test && npm run build
+
+      - name: Publicar en Cloudflare Pages
+        working-directory: apps/dashboard
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx --yes wrangler@4.151.1 pages project create "$PAGES_PROJECT" --production-branch main 2>/dev/null || true
+          npx --yes wrangler@4.151.1 pages deploy dist --project-name "$PAGES_PROJECT" --branch main --commit-dirty=true
+
+      - name: Resumen
+        run: |
+          {
+            echo "### LIFE OS desplegado"
+            echo "- Dashboard: https://$PAGES_PROJECT.pages.dev (mira la URL exacta en el paso anterior si Cloudflare añadió un sufijo)"
+            echo "- Conector para Claude: https://$REF.supabase.co/functions/v1/mcp"
+          } >> "$GITHUB_STEP_SUMMARY"
