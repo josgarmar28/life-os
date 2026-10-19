@@ -136,3 +136,29 @@ ul.error { padding-left: 18px; }
 .tab { flex: 1; text-align: center; padding: 14px 4px; color: var(--muted); font-weight: 600; font-size: 0.92rem; position: relative; }
 .tab.on { color: var(--accent); }
 .badge { display: inline-block; margin-left: 4px; background: var(--danger); color: #fff; border-radius: 999px; font-size: 0.72rem; padding: 0 6px; }
+.tag { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); vertical-align: 1px; }
+.tag.new { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.list.compact li { padding: 4px 0; font-size: 14px; }
+details > summary { cursor: pointer; margin: 6px 0; }
+.area-h { margin: 0; font-size: inherit; font-weight: inherit; }
+/* Semana */
+.week-nav { align-items: center; margin-top: 6px; }
+.week-nav .center { text-align: center; font-weight: 600; }
+.btn.disabled { opacity: .35; pointer-events: none; }
+.week-grid { display: flex; flex-direction: column; gap: 10px; }
+.wrow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; font-variant-numeric: tabular-nums; font-size: 14px; }
+.wrow.head span { font-size: 12px; font-weight: 600; color: var(--muted); display: flex; flex-direction: column; line-height: 1.2; }
+.wrow.head small { font-weight: 400; }
+.wrow.head .today { color: var(--accent); }
+.wrow span[role="cell"] { background: var(--bg); border-radius: 6px; padding: 5px 0; }
+.wrow span.empty { color: var(--muted); }
+.wblock { border-top: 1px solid var(--border); padding-top: 8px; }
+.wlabel { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px; font-size: 14px; }
+.wdelta { margin-top: 3px; text-align: right; }
+.week-forms li { align-items: center; gap: 8px; }
+.dots { display: inline-flex; gap: 3px; }
+.count { min-width: 34px; text-align: right; }
+.copy-last { margin: 4px 0 8px; }
+.columns-editor { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px 12px; margin: 4px 0; }
+.columns-editor legend { font-weight: 600; padding: 0 4px; }
+.col-draft { border-bottom: 1px dashed var(--border); padding-bottom: 8px; margin-bottom: 8px; }

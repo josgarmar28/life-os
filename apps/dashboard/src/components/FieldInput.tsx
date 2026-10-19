@@ -16,14 +16,15 @@ interface ScalarProps {
   compact?: boolean;
 }
 
-function Chips({ options, value, multi, onChange }: { options: Option[]; value: Cell; multi?: boolean; onChange: (v: Cell) => void }) {
+function Chips({ options, value, multi, label, onChange }: { options: Option[]; value: Cell; multi?: boolean; label: string; onChange: (v: Cell) => void }) {
   const selected = Array.isArray(value) ? value : value ? [value] : [];
   return (
-    <div className="chips" role={multi ? 'group' : 'radiogroup'}>
+    <div className="chips" role={multi ? 'group' : 'radiogroup'} aria-label={label}>
       {options.map((o) => {
         const on = selected.includes(o.value);
         return (
-          <button key={o.value} type="button" className={on ? 'chip on' : 'chip'} aria-pressed={on}
+          <button key={o.value} type="button" className={on ? 'chip on' : 'chip'}
+            {...(multi ? { 'aria-pressed': on } : { role: 'radio', 'aria-checked': on })}
             onClick={() => {
               if (multi) onChange(on ? selected.filter((x) => x !== o.value) : [...selected, o.value]);
               else onChange(on ? '' : o.value);
@@ -43,13 +44,13 @@ export function ScalarInput(p: ScalarProps) {
       const lo = p.min ?? 1;
       const hi = p.max ?? 5;
       const opts = Array.from({ length: Math.max(0, hi - lo + 1) }, (_, i) => ({ value: String(lo + i) }));
-      return opts.length <= 11 ? <Chips options={opts} value={v} onChange={p.onChange} />
+      return opts.length <= 11 ? <Chips options={opts} value={v} label={p.label} onChange={p.onChange} />
         : <input id={p.id} type="number" inputMode="numeric" min={lo} max={hi} value={v} onChange={(e) => p.onChange(e.target.value)} />;
     }
     case 'boolean':
-      return <Chips options={[{ value: 'true', label: 'Sí' }, { value: 'false', label: 'No' }]} value={v} onChange={p.onChange} />;
+      return <Chips options={[{ value: 'true', label: 'Sí' }, { value: 'false', label: 'No' }]} value={v} label={p.label} onChange={p.onChange} />;
     case 'choice':
-      return (p.options?.length ?? 0) <= 8 ? <Chips options={p.options ?? []} value={v} onChange={p.onChange} />
+      return (p.options?.length ?? 0) <= 8 ? <Chips options={p.options ?? []} value={v} label={p.label} onChange={p.onChange} />
         : (
           <select id={p.id} value={v} onChange={(e) => p.onChange(e.target.value)}>
             <option value="">—</option>
@@ -57,7 +58,7 @@ export function ScalarInput(p: ScalarProps) {
           </select>
         );
     case 'multi':
-      return <Chips options={p.options ?? []} value={p.value} multi onChange={p.onChange} />;
+      return <Chips options={p.options ?? []} value={p.value} multi label={p.label} onChange={p.onChange} />;
     case 'date':
       return <input id={p.id} type="date" value={v} onChange={(e) => p.onChange(e.target.value)} />;
     case 'time':

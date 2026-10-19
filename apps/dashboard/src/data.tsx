@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import type { Area, Entry, Field, Form, Proposal } from '@shared/model.ts';
 import { byOrder } from '@shared/model.ts';
 import { api, fetchAll, rpc } from './supabase';
+import { isNetworkError } from './outbox';
 
 export interface Structure {
   areas: Area[];
@@ -37,22 +38,43 @@ export async function loadStructure(): Promise<Structure> {
   };
 }
 
+// Copia local de la ESTRUCTURA (cuestionarios, sin datos personales) para abrir la app y registrar
+// sin cobertura; los registros hechos así van a la cola local (outbox) y se envían al volver la red.
+const CACHE_KEY = 'lifeos.structure';
+const EMPTY: Structure = { areas: [], forms: [], fields: [], timezone: 'Europe/Zurich', pendingProposals: 0 };
+
+function readCache(): Structure | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    return raw ? (JSON.parse(raw) as Structure) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function StructureProvider({ children }: { children: ReactNode }) {
-  const [s, setS] = useState<Structure>({ areas: [], forms: [], fields: [], timezone: 'Europe/Zurich', pendingProposals: 0 });
-  const [loading, setLoading] = useState(true);
+  const [s, setS] = useState<Structure>(() => readCache() ?? EMPTY);
+  const [loading, setLoading] = useState(() => !readCache());
   const [error, setError] = useState<string | null>(null);
   const reload = useCallback(async () => {
     try {
-      setS(await loadStructure());
+      const fresh = await loadStructure();
+      setS(fresh);
       setError(null);
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(fresh)); } catch { /* sin almacenamiento: no pasa nada */ }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const cached = readCache();
+      if (cached && isNetworkError(e)) setError('offline');
+      else setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
   }, []);
   useEffect(() => {
     void reload();
+    const on = () => void reload();
+    window.addEventListener('online', on);
+    return () => window.removeEventListener('online', on);
   }, [reload]);
   return <StructureCtx.Provider value={{ ...s, loading, error, reload }}>{children}</StructureCtx.Provider>;
 }

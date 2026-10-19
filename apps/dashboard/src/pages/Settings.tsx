@@ -64,6 +64,8 @@ export function Settings() {
         </section>
       ) : null}
 
+      <PasswordCard />
+
       <section className="card">
         <h2>Conector de Claude</h2>
         <p className="small">En Claude: Ajustes › Conectores › Añadir conector personalizado, con esta URL. Al conectar, te pedirá entrar aquí y aprobar el acceso.</p>
@@ -97,5 +99,45 @@ export function Settings() {
 
       <button className="btn ghost wide" onClick={() => void supabase.auth.signOut()}>Cerrar sesión</button>
     </main>
+  );
+}
+
+// Contraseña para entrar desde la app del iPhone (que no comparte sesión con Safari) y en la
+// pantalla de consentimiento del conector. Mínimo 10 caracteres; mejor una frase larga del gestor.
+function PasswordCard() {
+  const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function save() {
+    if (pw.length < 10) return setMsg({ ok: false, text: 'Usa al menos 10 caracteres.' });
+    if (pw !== pw2) return setMsg({ ok: false, text: 'Las dos contraseñas no coinciden.' });
+    setBusy(true);
+    const { error } = await supabase.auth.updateUser({ password: pw });
+    setBusy(false);
+    if (error) {
+      const text = /reauthentication|recent/i.test(error.message)
+        ? 'Por seguridad, cierra sesión, entra de nuevo con un enlace por correo y vuelve a intentarlo.'
+        : /weak|pwned|leaked/i.test(error.message) ? 'Esa contraseña es débil o ha aparecido en filtraciones; elige otra.'
+          : /same|different from the old/i.test(error.message) ? 'Es la misma contraseña que ya tenías.' : error.message;
+      return setMsg({ ok: false, text });
+    }
+    setPw('');
+    setPw2('');
+    setMsg({ ok: true, text: 'Contraseña guardada. Ya puedes entrar con ella desde la app del iPhone.' });
+  }
+
+  return (
+    <section className="card">
+      <h2>Contraseña</h2>
+      <p className="small">Para entrar desde la app del iPhone y al conectar Claude. Guárdala en tu gestor de contraseñas.</p>
+      <form className="stack" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+        <label>Nueva contraseña<input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} /></label>
+        <label>Repítela<input type="password" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} /></label>
+        <button className="btn" disabled={busy || !pw}>Guardar contraseña</button>
+      </form>
+      {msg ? <p className={msg.ok ? 'ok-line small' : 'error'}>{msg.text}</p> : null}
+    </section>
   );
 }

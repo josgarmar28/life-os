@@ -25,9 +25,12 @@ export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; f
   // Un request_id por apertura del formulario: reenviar (doble toque, reintento) nunca duplica.
   const [requestId] = useState(() => crypto.randomUUID());
 
+  // La estructura se refresca en segundo plano (y al volver la red): eso nunca debe borrar lo que
+  // ya has escrito. Solo se recarga si cambian los campos (ids) o el registro que se corrige.
+  const fieldsKey = fields.map((f) => f.id).join(',');
   useEffect(() => {
     if (!entryId) {
-      setState(fromData(fields, {}));
+      setState((st) => ({ ...fromData(fields, {}), ...st }));
       return;
     }
     void api().from('entries').select('*').eq('id', entryId).maybeSingle().then(({ data, error }) => {
@@ -42,7 +45,18 @@ export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; f
       setNote(e.note);
       setEstimated(e.quality === 'estimated');
     });
-  }, [entryId, fields]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fieldsKey resume `fields`
+  }, [entryId, fieldsKey]);
+
+  // Para tablas (p. ej. las series del gimnasio): partir de lo que hiciste la última vez.
+  const hasTable = fields.some((f) => f.type === 'table');
+  const [last, setLast] = useState<Entry | null>(null);
+  useEffect(() => {
+    if (entryId || !hasTable || !form?.id) return;
+    void api().from('entries').select('*').eq('form_id', form.id)
+      .order('local_date', { ascending: false }).order('occurred_at', { ascending: false }).limit(1).maybeSingle()
+      .then(({ data }) => setLast((data as Entry | null) ?? null));
+  }, [entryId, hasTable, form?.id]);
 
   if (!area || !form) return <main><p>No existe ese formulario.</p><Link to="/">Volver</Link></main>;
 
@@ -90,6 +104,12 @@ export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; f
         {fields.map((f) => (
           <div className="field" key={f.id}>
             <label className="label" htmlFor={`f-${f.key}`}>{f.label}{f.required ? ' *' : ''}</label>
+            {f.type === 'table' && last && Array.isArray(last.data[f.key]) && (last.data[f.key] as unknown[]).length ? (
+              <button type="button" className="btn small ghost copy-last"
+                onClick={() => set(f.key, (fromData([f], last.data)[f.key] as Row[]) ?? [])}>
+                Copiar de la última vez ({last.local_date.slice(8)}/{last.local_date.slice(5, 7)}, {(last.data[f.key] as unknown[]).length} filas)
+              </button>
+            ) : null}
             {f.help ? <p className="muted small">{f.help}</p> : null}
             {f.type === 'table'
               ? <TableInput field={f} rows={(state[f.key] as Row[]) ?? []} onChange={(rows) => set(f.key, rows)} />

@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
@@ -13,9 +17,24 @@
     "noEmit": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "types": ["vite/client", "node"],
+    "types": [
+      "vite/client",
+      "node"
+    ],
     "baseUrl": ".",
-    "paths": { "@shared/*": ["../../supabase/functions/_shared/*"] }
+    "paths": {
+      "@shared/*": [
+        "../../supabase/functions/_shared/*"
+      ]
+    }
   },
-  "include": ["src", "tests", "vite.config.ts", "../../supabase/functions/_shared", "../../supabase/functions/mcp/handler.ts"]
+  "include": [
+    "src",
+    "tests",
+    "vite.config.ts",
+    "../../supabase/functions/_shared",
+    "../../supabase/functions/mcp/handler.ts",
+    "e2e",
+    "playwright.config.ts"
+  ]
 }

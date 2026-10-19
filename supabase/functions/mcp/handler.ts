@@ -6,8 +6,9 @@
 import type { Area, Entry, Field, Form, Proposal } from '../_shared/model.ts';
 import { byOrder } from '../_shared/model.ts';
 import { addDays, formatValue, localDate, summarizeForm } from '../_shared/stats.ts';
+import { summarizeWeek, weekRange } from '../_shared/week.ts';
 
-export const SERVER_INFO = { name: 'lifeos', title: 'LIFE OS', version: '0.1.0' };
+export const SERVER_INFO = { name: 'lifeos', title: 'LIFE OS', version: '0.2.0' };
 export const SUPPORTED_PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 
 export const INSTRUCTIONS = [
@@ -16,6 +17,8 @@ export const INSTRUCTIONS = [
   'Registra solo lo que él te diga o lo que derive de forma explícita de lo que te diga; nunca inventes valores.',
   "Calidad: 'manual' si él lo dice, 'estimated' si es una estimación (p. ej. kcal). Nunca 'measured'.",
   'Cambiar la estructura (áreas, formularios, campos) se hace con lifeos_propose_change; él lo aprueba en el dashboard.',
+  'Para revisiones (semana, tendencias, cómo se influyen sueño, entreno, nutrición, estrés y agenda) usa lifeos_week y lifeos_overview antes de opinar, y separa lo que dicen los datos de lo que infieres.',
+  'Él registra en el dashboard; tú registras solo cuando te lo pide expresamente en el chat.',
   'Las fotos corporales y de pelo no existen aquí y no deben subirse a ningún sitio.',
 ].join(' ');
 
@@ -201,6 +204,41 @@ export const TOOLS: Tool[] = [
     },
   },
   {
+    name: 'lifeos_week',
+    title: 'Semana entre áreas',
+    description: 'Semana de lunes a domingo con TODAS las áreas: cumplimiento de cada cuestionario según su cadencia y los indicadores numéricos día a día (sueño, energía, estrés, peso, duración del entreno…), con su media y el cambio frente a la semana anterior. Úsalo para la revisión semanal y para buscar relaciones entre áreas (p. ej. noches malas y rendimiento). Para el detalle de un registro, usa lifeos_entries.',
+    inputSchema: {
+      type: 'object',
+      properties: { date: { type: 'string', description: 'Cualquier día de la semana, YYYY-MM-DD (por defecto, la semana actual en su zona horaria).' } },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    async run(args, { api, now }) {
+      const tz = await api.timezone();
+      const today = localDate(now, tz);
+      const date = str(args.date, 'date') ?? today;
+      if (!isDate(date)) throw new ToolError('"date" debe ser YYYY-MM-DD.');
+      const { areas, forms, fields } = await loadStructure(api);
+      const { fetchFrom, end } = weekRange(date);
+      const active = forms.filter((f) => f.status === 'active');
+      const entries = await api.entries({ formIds: active.map((f) => f.id), from: fetchFrom, to: end, limit: 5000 });
+      const w = summarizeWeek(areas, forms, fields, entries, date, today);
+      const r2 = (v: number | null) => (v === null ? null : Math.round(v * 100) / 100);
+      return {
+        week: { start: w.start, end: w.end, days: w.dates, days_elapsed: w.elapsed },
+        timezone: tz,
+        compliance: w.forms.map((f) => ({
+          area: f.area.slug, form: f.form.slug, name: f.form.name, cadence: f.form.cadence,
+          entries: f.count, days_with_entries: f.days, expected_so_far: f.expected,
+        })),
+        indicators: w.indicators.map((i) => ({
+          area: i.area.slug, form: i.form.slug, key: i.field.key, label: i.field.label, unit: i.field.unit || undefined,
+          type: i.field.type, by_day: i.days, avg: r2(i.avg), prev_week_avg: r2(i.prevAvg), change: r2(i.delta), days_with_data: i.n,
+        })),
+      };
+    },
+  },
+  {
     name: 'lifeos_entries',
     title: 'Leer registros',
     description: 'Devuelve los registros vigentes (sin versiones corregidas ni borradas) de un área o formulario y un rango de fechas, con valores en bruto y legibles.',
@@ -356,7 +394,13 @@ export const TOOLS: Tool[] = [
     name: 'lifeos_propose_change',
     title: 'Proponer un cambio de estructura',
     description:
-      'Crea una propuesta que él aprueba o rechaza en el dashboard. kind: area.save {id?, slug, name, description?, icon?, sort_order?}; form.save {id?, area_id, slug, name, description?, cadence, sort_order?}; field.save {id?, form_id, key, label, type, help?, unit?, min?, max?, step?, options?, columns?, required?, on_overview?, sort_order?}; form.archive {id}; field.archive {id}; note {text} para una recomendación. La clave y el tipo de un campo no cambian: archiva y crea otro.',
+      'Crea una propuesta que él aprueba o rechaza en el dashboard; nada cambia hasta entonces. Usa los identificadores de lifeos_structure (slugs y claves); si lo indicado ya existe, la propuesta lo modifica. '
+      + 'kind y payload: '
+      + 'area.save {slug, name, description?, icon?, sort_order?}; '
+      + 'form.save {area, slug, name, description?, cadence (daily|weekly|biweekly|monthly|per_session|free), sort_order?, fields?: [campo…]} crea o modifica el cuestionario y sus campos de una vez; '
+      + 'field.save {area, form, key, label, type, help?, unit?, min?, max?, step?, options? [{value,label}], columns? [{key,label,type,unit?,min?,max?,required?,options?}], required?, on_overview?, sort_order?}; '
+      + 'form.archive {area, form}; field.archive {area, form, key}; note {text} para una recomendación sin cambios. '
+      + 'Tipos: number, integer, scale, boolean, text, choice, multi, date, time, duration (minutos), table. Las claves son minúsculas con guiones bajos. La clave y el tipo de un campo existente no cambian: archívalo y crea otro.',
     inputSchema: {
       type: 'object',
       properties: {

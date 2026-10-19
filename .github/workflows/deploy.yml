@@ -66,9 +66,10 @@ jobs:
       - name: Clave pública del proyecto
         id: key
         run: |
-          KEY=$(supabase projects api-keys --project-ref "$REF" -o json \
-            | jq -r '[.[] | select(.name == "anon" or .type == "publishable")][0].api_key // empty')
-          [ -n "$KEY" ] || { echo "No se encontró la clave pública (anon/publishable)."; exit 1; }
+          # Proyectos nuevos: clave "publishable" (sb_publishable_…); antiguos: la "anon" heredada.
+          KEY=$(curl -fsS "https://api.supabase.com/v1/projects/$REF/api-keys" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            | jq -r '([.[] | select(.type == "publishable")][0].api_key) // ([.[] | select(.name == "anon")][0].api_key) // empty')
+          [ -n "$KEY" ] || { echo "No se encontró la clave pública (publishable/anon)."; exit 1; }
           echo "::add-mask::$KEY"
           echo "key=$KEY" >> "$GITHUB_OUTPUT"
 
