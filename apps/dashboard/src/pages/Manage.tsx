@@ -180,14 +180,13 @@ function FormEditor({ area, form }: { area: Area; form: Form }) {
           </form>
           <h3>Campos</h3>
           {fields.map((f) => <FieldEditor key={f.id} formId={form.id} field={f} />)}
-          <FieldEditor formId={form.id} sortHint={(fields.length + 1) * 10} />
+          {/* La clave cambia al crear un campo: el siguiente "Añadir campo" empieza vacío. */}
+          <FieldEditor key={`nuevo-${fields.length}`} formId={form.id} sortHint={(fields.length + 1) * 10} />
         </>
       ) : null}
     </section>
   );
 }
-
-const COLUMNS_EXAMPLE = '[\n  {"key": "ejercicio", "label": "Ejercicio", "type": "text", "required": true},\n  {"key": "reps", "label": "Reps", "type": "integer", "min": 0, "max": 100}\n]';
 
 function FieldEditor({ formId, field, sortHint }: { formId: string; field?: Field; sortHint?: number }) {
   const isNew = !field;
@@ -202,22 +201,21 @@ function FieldEditor({ formId, field, sortHint }: { formId: string; field?: Fiel
     max: field?.max?.toString() ?? '',
     step: field?.step?.toString() ?? '',
     options: optionsToText(field?.options ?? []),
-    columns: field?.columns.length ? JSON.stringify(field.columns, null, 2) : '',
     required: field?.required ?? false,
     overview: field?.on_overview ?? false,
     sort: String(field?.sort_order ?? sortHint ?? 100),
   }));
+  const [cols, setCols] = useState<ColDraft[]>(() => (field?.columns ?? []).map(toDraft));
   const act = useAction();
   const num = (x: string) => (x.trim() === '' ? null : Number(x.replace(',', '.')));
 
   function save() {
     let columns: Column[] = [];
     if (v.type === 'table') {
-      try {
-        columns = JSON.parse(v.columns || '[]');
-      } catch {
-        return act.run(async () => { throw new Error('Las columnas no son JSON válido'); });
-      }
+      columns = cols.filter((c) => c.label.trim()).map(fromDraft);
+      const dup = columns.find((c, i) => columns.findIndex((x) => x.key === c.key) !== i);
+      if (!columns.length) return act.run(async () => { throw new Error('Añade al menos una columna'); });
+      if (dup) return act.run(async () => { throw new Error(`Dos columnas se llaman igual: ${dup.label}`); });
     }
     const key = v.key || slugify(v.label, '_');
     return act.run(() => rpc('save_field', {
@@ -263,11 +261,7 @@ function FieldEditor({ formId, field, sortHint }: { formId: string; field?: Fiel
           <textarea rows={4} value={v.options} onChange={(e) => setV({ ...v, options: e.target.value })} />
         </label>
       ) : null}
-      {v.type === 'table' ? (
-        <label>Columnas (JSON)
-          <textarea rows={6} className="mono" placeholder={COLUMNS_EXAMPLE} value={v.columns} onChange={(e) => setV({ ...v, columns: e.target.value })} />
-        </label>
-      ) : null}
+      {v.type === 'table' ? <ColumnsEditor cols={cols} onChange={setCols} /> : null}
       <label className="check"><input type="checkbox" checked={v.required} onChange={(e) => setV({ ...v, required: e.target.checked })} /> Obligatorio</label>
       <label className="check"><input type="checkbox" checked={v.overview} onChange={(e) => setV({ ...v, overview: e.target.checked })} /> Mostrar en la vista general</label>
       <label className="narrow">Orden<input inputMode="numeric" value={v.sort} onChange={(e) => setV({ ...v, sort: e.target.value })} /></label>
@@ -314,5 +308,60 @@ function DangerZone({ area }: { area: Area }) {
       )}
       {act.error ? <p className="error">{act.error}</p> : null}
     </section>
+  );
+}
+
+// Columnas de una tabla (p. ej. las series del gimnasio), sin escribir JSON: pensado para el móvil.
+interface ColDraft { key: string; label: string; type: FieldType; unit: string; min: string; max: string; required: boolean; options: string; existing: boolean }
+const COLUMN_TYPES: FieldType[] = ['text', 'number', 'integer', 'scale', 'boolean', 'choice', 'duration', 'time'];
+const toDraft = (c: Column): ColDraft => ({
+  key: c.key, label: c.label, type: c.type, unit: c.unit ?? '', min: c.min?.toString() ?? '', max: c.max?.toString() ?? '',
+  required: Boolean(c.required), options: optionsToText(c.options ?? []), existing: true,
+});
+function fromDraft(c: ColDraft): Column {
+  const n = (x: string) => (x.trim() === '' ? null : Number(x.replace(',', '.')));
+  const col: Column = { key: c.existing ? c.key : slugify(c.label, '_'), label: c.label.trim(), type: c.type };
+  if (c.unit.trim()) col.unit = c.unit.trim();
+  if (n(c.min) !== null) col.min = n(c.min);
+  if (n(c.max) !== null) col.max = n(c.max);
+  if (c.type === 'choice') col.options = parseOptions(c.options);
+  if (c.required) col.required = true;
+  return col;
+}
+
+function ColumnsEditor({ cols, onChange }: { cols: ColDraft[]; onChange: (c: ColDraft[]) => void }) {
+  const set = (i: number, patch: Partial<ColDraft>) => onChange(cols.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  return (
+    <fieldset className="columns-editor">
+      <legend>Columnas</legend>
+      {cols.map((c, i) => (
+        <div key={i} className="col-draft">
+          <div className="row gap">
+            <label className="grow">Columna {i + 1}<input value={c.label} onChange={(e) => set(i, { label: e.target.value })} placeholder="Ejercicio, Carga, Reps…" /></label>
+            <label className="narrow">Tipo
+              <select value={c.type} disabled={c.existing} onChange={(e) => set(i, { type: e.target.value as FieldType })}>
+                {COLUMN_TYPES.map((t) => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
+              </select>
+            </label>
+          </div>
+          {['number', 'integer', 'scale', 'duration'].includes(c.type) ? (
+            <div className="row gap">
+              <label className="grow">Unidad<input value={c.unit} onChange={(e) => set(i, { unit: e.target.value })} /></label>
+              <label className="narrow">Mín.<input inputMode="decimal" value={c.min} onChange={(e) => set(i, { min: e.target.value })} /></label>
+              <label className="narrow">Máx.<input inputMode="decimal" value={c.max} onChange={(e) => set(i, { max: e.target.value })} /></label>
+            </div>
+          ) : null}
+          {c.type === 'choice' ? (
+            <label>Opciones (una por línea)<textarea rows={3} value={c.options} onChange={(e) => set(i, { options: e.target.value })} /></label>
+          ) : null}
+          <div className="row gap">
+            <label className="check grow"><input type="checkbox" checked={c.required} onChange={(e) => set(i, { required: e.target.checked })} /> Obligatoria en cada fila</label>
+            {!c.existing ? <button type="button" className="link danger" onClick={() => onChange(cols.filter((_, j) => j !== i))}>Quitar</button> : null}
+          </div>
+        </div>
+      ))}
+      <button type="button" className="btn small" onClick={() => onChange([...cols, { key: '', label: '', type: 'text', unit: '', min: '', max: '', required: false, options: '', existing: false }])}>Añadir columna</button>
+      {cols.some((c) => c.existing) ? <p className="muted small">Las columnas que ya tienen datos no se pueden quitar ni cambiar de tipo.</p> : null}
+    </fieldset>
   );
 }

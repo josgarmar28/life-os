@@ -3,7 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import { configured, rpc, supabase } from './supabase';
 import { StructureProvider, useStructure } from './data';
 import { Link, match, useLocation } from './router';
-import { flushOutbox, readOutbox } from './outbox';
+import { flushOutbox, isNetworkError, readOutbox } from './outbox';
 import { Login } from './pages/Login';
 import { Overview } from './pages/Overview';
 import { AreaPage } from './pages/AreaPage';
@@ -12,6 +12,10 @@ import { ManageArea, ManageList } from './pages/Manage';
 import { Proposals } from './pages/Proposals';
 import { Settings } from './pages/Settings';
 import { Consent } from './pages/Consent';
+import { Week } from './pages/Week';
+
+const OWNER_KEY = 'lifeos.owner';
+const readKey = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 
 export function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
@@ -26,7 +30,14 @@ export function App() {
 
   useEffect(() => {
     if (!session) return setOwner(null);
-    void rpc<{ is_owner: boolean }>('whoami', {}).then((w) => setOwner(w.is_owner)).catch(() => setOwner(false));
+    // Sin red (gimnasio sin cobertura) se usa la última comprobación de este dispositivo para poder registrar.
+    const uid = session.user.id;
+    void rpc<{ is_owner: boolean }>('whoami', {})
+      .then((w) => {
+        setOwner(w.is_owner);
+        try { if (w.is_owner) localStorage.setItem(OWNER_KEY, uid); else localStorage.removeItem(OWNER_KEY); } catch { /* sin almacenamiento */ }
+      })
+      .catch((e) => setOwner(isNetworkError(e) && readKey(OWNER_KEY) === uid));
     void flushOutbox();
     const on = () => void flushOutbox();
     window.addEventListener('online', on);
@@ -74,6 +85,8 @@ function Shell({ path }: { path: string }) {
   else if ((m = match('/a/:area', path))) page = <AreaPage key={path} slug={m.area} />;
   else if (path === '/gestion') page = <ManageList />;
   else if ((m = match('/gestion/:area', path))) page = <ManageArea key={path} slug={m.area} />;
+  else if (path === '/semana') page = <Week />;
+  else if ((m = match('/semana/:date', path)) && /^\d{4}-\d{2}-\d{2}$/.test(m.date)) page = <Week key={path} date={m.date} />;
   else if (path === '/propuestas') page = <Proposals />;
   else if (path === '/ajustes') page = <Settings />;
   else page = <main><p>Página no encontrada.</p><Link to="/">Ir al inicio</Link></main>;
@@ -89,10 +102,12 @@ function Shell({ path }: { path: string }) {
   return (
     <>
       {queued ? <Link to="/ajustes" className="banner top">{queued} {queued === 1 ? 'registro pendiente' : 'registros pendientes'} de enviar</Link> : null}
-      {s.error ? <p className="error pad">No se pudo cargar la estructura: {s.error}</p> : null}
+      {s.error === 'offline' ? <p className="banner top">Sin conexión: puedes registrar; se enviará al volver la red.</p>
+        : s.error ? <p className="error pad">No se pudo cargar la estructura: {s.error}</p> : null}
       {s.loading ? <p className="muted pad">Cargando…</p> : page}
       <nav className="tabs">
         {tab('/', 'Hoy')}
+        {tab('/semana', 'Semana')}
         {tab('/a', 'Áreas')}
         {tab('/propuestas', 'Propuestas', s.pendingProposals)}
         {tab('/ajustes', 'Ajustes')}

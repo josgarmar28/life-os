@@ -1,8 +1,9 @@
 # Primera configuración de SU Supabase para el dashboard. Idempotente: se puede repetir.
 # Solo a mano y después del primer "deploy". Lanzarlo ES su aprobación.
-#  1. Crea su usuario (sin contraseña: entra con código por correo) y lo registra como dueño único.
-#  2. Cierra el registro de usuarios nuevos y fija la URL del dashboard.
-#  3. Expone el esquema `api` y pone la plantilla del código de acceso.
+#  1. Crea su usuario (sin contraseña: la primera vez entra con un enlace por correo y la crea en Ajustes)
+#     y lo registra como dueño único.
+#  2. Cierra el registro de usuarios nuevos, fija la URL del dashboard y la longitud mínima de contraseña.
+#  3. Expone el esquema `api` y activa el servidor OAuth para el conector de Claude.
 #  4. Carga las áreas y cuestionarios iniciales (solo estructura; no pisa lo que ya exista).
 name: bootstrap
 
@@ -65,12 +66,16 @@ jobs:
       - name: Usuario dueño
         run: |
           . "$RUNNER_TEMP/lib.sh"
+          # Proyectos nuevos: clave secreta (sb_secret_…), que va SOLO en la cabecera apikey;
+          # proyectos antiguos: service_role heredada (JWT), que va también como Bearer.
           SERVICE=$(mgmt GET "/projects/$REF/api-keys?reveal=true" \
-            | jq -r '[.[] | select(.name == "service_role" or .type == "secret")][0].api_key // empty')
+            | jq -r '([.[] | select(.type == "secret")][0].api_key) // ([.[] | select(.name == "service_role")][0].api_key) // empty')
           [ -n "$SERVICE" ] || { echo "No se encontró la clave de servicio"; exit 1; }
           echo "::add-mask::$SERVICE"
+          AUTHZ=()
+          case "$SERVICE" in sb_secret_*) ;; *) AUTHZ=(-H "Authorization: Bearer $SERVICE") ;; esac
           code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "https://$REF.supabase.co/auth/v1/admin/users" \
-            -H "apikey: $SERVICE" -H "Authorization: Bearer $SERVICE" -H 'Content-Type: application/json' \
+            -H "apikey: $SERVICE" "${AUTHZ[@]}" -H 'Content-Type: application/json' \
             --data "$(jq -n --arg e "$OWNER_EMAIL" '{email: $e, email_confirm: true}')")
           case "$code" in
             200|201) echo "Usuario creado." ;;
@@ -93,9 +98,24 @@ jobs:
             external_email_enabled: true,
             site_url: $u,
             uri_allow_list: ($u + "/**"),
-            mailer_otp_exp: 600
+            mailer_otp_exp: 600,
+            password_min_length: 10
           }')" >/dev/null
-          echo "Registro cerrado; URL del dashboard fijada."
+          echo "Registro cerrado; URL del dashboard fijada; contraseñas de 10+ caracteres."
+
+      - name: Servidor OAuth para el conector de Claude
+        id: oauth
+        continue-on-error: true
+        run: |
+          . "$RUNNER_TEMP/lib.sh"
+          mgmt PATCH "/projects/$REF/config/auth" "$(jq -n '{
+            oauth_server_enabled: true,
+            oauth_server_allow_dynamic_registration: true,
+            oauth_server_authorization_path: "/oauth/consent"
+          }')" >/dev/null
+          echo "Servidor OAuth activado (registro dinámico, consentimiento en /oauth/consent)."
+      - if: steps.oauth.outcome == 'failure'
+        run: echo "::warning::No se pudo activar el servidor OAuth por API; actívalo a mano (runbook, paso 7)."
 
       - name: Plantilla del código por correo
         continue-on-error: true
@@ -105,7 +125,7 @@ jobs:
             mailer_subjects_magic_link: "Tu código de LIFE OS",
             mailer_templates_magic_link_content: "<h2>LIFE OS</h2><p>Tu código de acceso: <strong style=\"font-size:22px;letter-spacing:3px\">{{ .Token }}</strong></p><p>Caduca en 10 minutos. Si no lo has pedido tú, ignora este correo.</p><p><a href=\"{{ .ConfirmationURL }}\">O entra con este enlace</a></p>"
           }')" >/dev/null && echo "Plantilla puesta." \
-            || echo "::warning::No se pudo poner la plantilla; ponla a mano (runbook, paso 6)."
+            || echo "::notice::Plantilla no cambiada (en el plan gratuito sin SMTP propio no se puede). No hace falta: se entra con enlace y contraseña."
 
       - name: Exponer el esquema api
         run: |

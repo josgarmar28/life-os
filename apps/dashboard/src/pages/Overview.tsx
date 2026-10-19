@@ -59,7 +59,7 @@ export function Overview() {
           return (
             <section className="card" key={a.id}>
               <div className="card-head">
-                <Link to={`/a/${a.slug}`} className="area-title"><span className="icon">{a.icon}</span>{a.name}</Link>
+                <h2 className="area-h"><Link to={`/a/${a.slug}`} className="area-title"><span className="icon">{a.icon}</span>{a.name}</Link></h2>
               </div>
               {own.map((f) => {
                 const sum = summaries.get(f.id);

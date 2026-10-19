@@ -15,6 +15,7 @@ Sistema operativo personal: una base de datos única (Supabase/PostgreSQL), lóg
 | `supabase/migrations/` | Migraciones SQL, solo hacia delante. |
 | `supabase/tests/` | Pruebas SQL de seguridad y flujos (corren en CI). |
 | `scripts/test-db.sh` | Aplica migraciones y pruebas a una base **desechable**. |
+| `scripts/e2e/` | Pila local con Supabase Auth, PostgREST y el conector para las pruebas de principio a fin. |
 | `supabase/seed/` | Áreas y cuestionarios iniciales (solo estructura). |
 | `supabase/functions/mcp/` | Conector MCP para Claude (Edge Function con OAuth de Supabase). |
 | `supabase/functions/_shared/` | TypeScript puro compartido por el conector y el dashboard (modelo, estadísticas). |
@@ -25,6 +26,16 @@ Sistema operativo personal: una base de datos única (Supabase/PostgreSQL), lóg
 
 ```bash
 cd apps/dashboard && npm ci && npm test && npm run build
+```
+
+### De principio a fin (como en el iPhone, con Supabase Auth real)
+
+Requiere PostgreSQL 16, Deno y Node 22. Descarga una vez PostgREST y Supabase Auth en versiones fijas y levanta todo en local (base desechable, sin tocar Supabase):
+
+```bash
+scripts/e2e/fetch-bins.sh
+scripts/e2e/stack.sh          # pruebas Playwright: acceso, registros, gestión, sin cobertura, semana y conector de Claude con OAuth
+KEEP=1 scripts/e2e/stack.sh   # deja la pila levantada en http://127.0.0.1:54321
 ```
 
 ## Probar la base de datos en local

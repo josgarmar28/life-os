@@ -54,6 +54,10 @@ jobs:
           shred -u schema.sql data.sql auth.sql
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
           ls -l "$RUNNER_TEMP"/lifeos-*.age
+          # Una petición a la API cuenta como actividad (evita la pausa del plan gratuito).
+          PUB=$(curl -fsS "https://api.supabase.com/v1/projects/$REF/api-keys" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            | jq -r '([.[] | select(.type == "publishable")][0].api_key) // ([.[] | select(.name == "anon")][0].api_key) // empty')
+          curl -fsS -o /dev/null "https://$REF.supabase.co/auth/v1/health" -H "apikey: $PUB" && echo "Latido enviado.
 
       - uses: actions/upload-artifact@v4
         if: steps.cfg.outputs.ready == 'true'

@@ -18,3 +18,7 @@ exports/
 *.csv
 !supabase/**/*.csv
 *.tsbuildinfo
+.e2e-bin/
+apps/dashboard/test-results/
+apps/dashboard/playwright-report/
+apps/dashboard/e2e-shots/

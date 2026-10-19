@@ -13,7 +13,18 @@ import { handleBody } from './handler.ts';
 import type { Area, Entry, Field, Form, Proposal } from '../_shared/model.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
-const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
+// Clave pública: los proyectos nuevos solo tienen claves "publishable" (SUPABASE_PUBLISHABLE_KEYS,
+// un JSON con la clave en "default"); los antiguos, la "anon" heredada.
+function publicKey(): string {
+  try {
+    const keys = JSON.parse(Deno.env.get('SUPABASE_PUBLISHABLE_KEYS') ?? '{}') as Record<string, string>;
+    if (keys.default) return keys.default;
+  } catch { /* formato inesperado: probamos la heredada */ }
+  const legacy = Deno.env.get('SUPABASE_ANON_KEY');
+  if (!legacy) throw new Error('Sin clave pública en el entorno de la función');
+  return legacy;
+}
+const ANON_KEY = publicKey();
 // URL exacta que se pega en Claude al añadir el conector.
 const RESOURCE = Deno.env.get('MCP_PUBLIC_URL') ?? `${SUPABASE_URL}/functions/v1/mcp`;
 const METADATA_URL = `${RESOURCE}/.well-known/oauth-protected-resource`;

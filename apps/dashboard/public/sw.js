@@ -1,6 +1,6 @@
 // Service worker mínimo: guarda la "carcasa" de la app para abrirla sin conexión.
 // NUNCA guarda respuestas de Supabase (datos personales siempre frescos y fuera de la caché).
-const CACHE = 'lifeos-shell-v1';
+const CACHE = 'lifeos-shell-v2';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(['/', '/manifest.webmanifest', '/icon.svg'])));
@@ -20,15 +20,28 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
   if (req.mode === 'navigate') {
     // Red primero; sin red, la app en caché (la cola de registros se envía al volver la conexión).
-    event.respondWith(fetch(req).catch(() => caches.match('/')));
+    // La carcasa se actualiza en cada visita con red, para que sin red se abra la última versión.
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put('/', copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match('/')),
+    );
     return;
   }
   if (url.pathname.startsWith('/assets/')) {
     // Los recursos llevan hash en el nombre: caché primero.
     event.respondWith(
       caches.match(req).then((hit) => hit || fetch(req).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(req, copy));
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy));
+        }
         return res;
       })),
     );

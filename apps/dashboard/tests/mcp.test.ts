@@ -113,3 +113,13 @@ describe('herramientas', () => {
     expect(calls[0].fn).toBe('create_proposal');
   });
 });
+
+describe('semana', () => {
+  it('lifeos_week devuelve cumplimiento e indicadores día a día de la semana pedida', async () => {
+    const { api } = fakeApi([e('2027-01-04', 75), e('2027-01-11', 73.6), e('2027-01-13', 73.8)]);
+    const r = JSON.parse((await call(api, 'lifeos_week', { date: '2027-01-13' })).content[0].text);
+    expect(r.week).toMatchObject({ start: '2027-01-11', end: '2027-01-17', days_elapsed: 2 }); // "hoy" del contexto = 12-ene
+    expect(r.compliance[0]).toMatchObject({ area: 'cuerpo', form: 'peso', entries: 2, expected_so_far: 2 });
+    expect(r.indicators[0]).toMatchObject({ key: 'peso', by_day: [73.6, null, 73.8, null, null, null, null], avg: 73.7, prev_week_avg: 75, change: -1.3 });
+  });
+});

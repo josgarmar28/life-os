@@ -6,9 +6,11 @@ const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 /** Falta configuración: la app muestra una pantalla explicándolo en lugar de fallar. */
 export const configured = Boolean(url && key);
 
-// La clave "anon" es pública por diseño: el acceso real lo decide RLS en la base de datos.
+// La clave pública (publishable o "anon") es pública por diseño: el acceso real lo decide RLS.
+// Flujo implícito: el enlace del correo funciona aunque se pida desde la app y se abra en Safari
+// (PKCE exigiría abrirlo en el mismo navegador que lo pidió).
 export const supabase = createClient(url ?? 'http://localhost', key ?? 'missing', {
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'lifeos.auth' },
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'implicit', storageKey: 'lifeos.auth' },
 });
 
 export const api = () => supabase.schema('api');

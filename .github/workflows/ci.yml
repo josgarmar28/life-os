@@ -60,3 +60,40 @@ jobs:
         with:
           deno-version: v2.x
       - run: deno check --config supabase/functions/mcp/deno.json supabase/functions/mcp/index.ts
+
+  e2e:
+    name: Recorrido completo (Supabase local, navegador y conector)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/dashboard/package-lock.json
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: PostgreSQL del runner en el PATH
+        run: echo "$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        with:
+          path: .e2e-bin
+          key: e2e-bin-${{ hashFiles('scripts/e2e/fetch-bins.sh') }}
+      - name: PostgREST y Supabase Auth (versiones fijas)
+        run: scripts/e2e/fetch-bins.sh
+      - name: Dependencias y navegador
+        working-directory: apps/dashboard
+        run: npm ci && npx playwright install --with-deps chromium
+      - name: Pruebas end-to-end
+        env:
+          E2E_LOGS: ${{ runner.temp }}/e2e-logs
+        run: scripts/e2e/stack.sh
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-resultados
+          path: |
+            apps/dashboard/test-results
+            ${{ runner.temp }}/e2e-logs
+          retention-days: 7
