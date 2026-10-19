@@ -1,0 +1,126 @@
+# Primera configuración de SU Supabase para el dashboard. Idempotente: se puede repetir.
+# Solo a mano y después del primer "deploy". Lanzarlo ES su aprobación.
+#  1. Crea su usuario (sin contraseña: entra con código por correo) y lo registra como dueño único.
+#  2. Cierra el registro de usuarios nuevos y fija la URL del dashboard.
+#  3. Expone el esquema `api` y pone la plantilla del código de acceso.
+#  4. Carga las áreas y cuestionarios iniciales (solo estructura; no pisa lo que ya exista).
+name: bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      dashboard_url:
+        description: 'URL del dashboard (https://….pages.dev), sin barra final'
+        required: true
+      seed:
+        description: 'Cargar áreas y cuestionarios iniciales'
+        type: boolean
+        default: true
+      confirm:
+        description: 'Escribe CONFIGURAR para confirmar'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lifeos-prod
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    if: inputs.confirm == 'CONFIGURAR' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      OWNER_EMAIL: ${{ secrets.LIFEOS_OWNER_EMAIL }}
+      REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      DASHBOARD_URL: ${{ inputs.dashboard_url }}
+      MGMT: https://api.supabase.com/v1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Comprobar entradas
+        run: |
+          for v in TOKEN OWNER_EMAIL REF; do [ -n "${!v}" ] || { echo "Falta $v"; exit 1; }; done
+          [[ "$OWNER_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] || { echo "LIFEOS_OWNER_EMAIL no parece un correo"; exit 1; }
+          [[ "$DASHBOARD_URL" =~ ^https://[A-Za-z0-9.-]+$ ]] || { echo "dashboard_url debe ser https://host sin ruta ni barra final"; exit 1; }
+
+      - name: Funciones auxiliares
+        run: |
+          cat > "$RUNNER_TEMP/lib.sh" <<'SH'
+          set -euo pipefail
+          mgmt() { # método ruta [json]
+            local out code
+            out=$(mktemp)
+            code=$(curl -sS -o "$out" -w '%{http_code}' -X "$1" "$MGMT$2" \
+              -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' ${3:+--data "$3"})
+            if [ "${code:0:1}" != 2 ]; then echo "Error $code en $1 $2:" >&2; cat "$out" >&2; echo >&2; rm -f "$out"; return 1; fi
+            cat "$out"; rm -f "$out"
+          }
+          sql() { mgmt POST "/projects/$REF/database/query" "$(jq -n --arg q "$1" '{query: $q}')"; }
+          SH
+
+      - name: Usuario dueño
+        run: |
+          . "$RUNNER_TEMP/lib.sh"
+          SERVICE=$(mgmt GET "/projects/$REF/api-keys?reveal=true" \
+            | jq -r '[.[] | select(.name == "service_role" or .type == "secret")][0].api_key // empty')
+          [ -n "$SERVICE" ] || { echo "No se encontró la clave de servicio"; exit 1; }
+          echo "::add-mask::$SERVICE"
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "https://$REF.supabase.co/auth/v1/admin/users" \
+            -H "apikey: $SERVICE" -H "Authorization: Bearer $SERVICE" -H 'Content-Type: application/json' \
+            --data "$(jq -n --arg e "$OWNER_EMAIL" '{email: $e, email_confirm: true}')")
+          case "$code" in
+            200|201) echo "Usuario creado." ;;
+            422) echo "El usuario ya existía." ;;
+            *) echo "No se pudo crear el usuario (HTTP $code)"; exit 1 ;;
+          esac
+          # Correo ya validado arriba (sin comillas posibles).
+          sql "insert into core.app_owner (user_id)
+               select id from auth.users where lower(email) = lower('$OWNER_EMAIL')
+               on conflict (singleton) do update set user_id = excluded.user_id;" >/dev/null
+          n=$(sql "select count(*)::int as n from core.app_owner o join auth.users u on u.id = o.user_id where lower(u.email) = lower('$OWNER_EMAIL');" | jq -r '.[0].n')
+          [ "$n" = 1 ] || { echo "El dueño no quedó registrado"; exit 1; }
+          echo "Dueño registrado."
+
+      - name: Autenticación (registro cerrado y URL del dashboard)
+        run: |
+          . "$RUNNER_TEMP/lib.sh"
+          mgmt PATCH "/projects/$REF/config/auth" "$(jq -n --arg u "$DASHBOARD_URL" '{
+            disable_signup: true,
+            external_email_enabled: true,
+            site_url: $u,
+            uri_allow_list: ($u + "/**"),
+            mailer_otp_exp: 600
+          }')" >/dev/null
+          echo "Registro cerrado; URL del dashboard fijada."
+
+      - name: Plantilla del código por correo
+        continue-on-error: true
+        run: |
+          . "$RUNNER_TEMP/lib.sh"
+          mgmt PATCH "/projects/$REF/config/auth" "$(jq -n '{
+            mailer_subjects_magic_link: "Tu código de LIFE OS",
+            mailer_templates_magic_link_content: "<h2>LIFE OS</h2><p>Tu código de acceso: <strong style=\"font-size:22px;letter-spacing:3px\">{{ .Token }}</strong></p><p>Caduca en 10 minutos. Si no lo has pedido tú, ignora este correo.</p><p><a href=\"{{ .ConfirmationURL }}\">O entra con este enlace</a></p>"
+          }')" >/dev/null && echo "Plantilla puesta." \
+            || echo "::warning::No se pudo poner la plantilla; ponla a mano (runbook, paso 6)."
+
+      - name: Exponer el esquema api
+        run: |
+          . "$RUNNER_TEMP/lib.sh"
+          current=$(mgmt GET "/projects/$REF/postgrest" | jq -r '.db_schema')
+          case ",$current," in
+            *,api,*) echo "Ya expuesto: $current" ;;
+            *) mgmt PATCH "/projects/$REF/postgrest" "$(jq -n --arg s "$current,api" '{db_schema: $s}')" >/dev/null
+               echo "Expuesto: $current,api" ;;
+          esac
+
+      - name: Áreas y cuestionarios iniciales
+        if: inputs.seed
+        run: |
+          . "$RUNNER_TEMP/lib.sh"
+          sql "$(cat supabase/seed/areas-iniciales.sql)" >/dev/null
+          sql "select a.slug, count(distinct f.id)::int as formularios from core.area a left join core.form f on f.area_id = a.id group by a.slug order by a.slug;" \
+            | jq -r '.[] | "\(.slug): \(.formularios) formularios"'

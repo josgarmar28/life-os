@@ -1,6 +1,6 @@
 # LIFE OS — Estado del proyecto
 
-Última actualización: 2026-10-09. Este archivo refleja el **estado real**; lo diseñado pero no construido consta como tal.
+Última actualización: 2026-10-18. Este archivo refleja el **estado real**; lo diseñado pero no construido consta como tal.
 
 ## Objetivos
 Sistema personal integrado de salud (entrenamiento, nutrición, sueño), trabajo, calendario y finanzas; máxima automatización compatible con seguridad, bajo coste y control del usuario. Detalle en `docs/spec/`.
@@ -10,8 +10,9 @@ Reside en Pully (Suiza). Gimnasio: Elevate Gym. iPhone. Reloj Amazfit (Zepp). B�
 
 ## Decisiones
 - **Confirmadas:** Claude como plataforma de IA; automatización máxima con aprobación humana; servicios gestionados; coste mínimo; finanzas sin conexiones (D-09); creación del repositorio y del proyecto de Supabase autorizada.
-- **Aprobadas por el usuario (2026-10-09):** D-01, D-02, D-03, D-05, D-06, D-07, D-08, D-10/D-11, D-12, D-13.
+- **Aprobadas por el usuario (2026-10-09):** D-01, D-02 (sustituida por D-15), D-03, D-05, D-06, D-07, D-08, D-10/D-11, D-12, D-13.
 - **Pendientes por diseño:** D-04 (n8n, fase P3) y D-14 (avisos, se prueba en P2). Ver `docs/adr/0001-decisiones-iniciales.md`.
+- **Aceptadas 18-oct (ADR-0002):** dashboard único con motor de áreas genérico, entrada de datos solo en el dashboard, conector MCP con OAuth de Supabase, plan gratuito con copia cifrada propia (sustituye D-02), arranque en enero sin histórico, "eliminar" = archivar.
 
 ## Arquitectura vigente
 Ver SPEC-002 §3. Resumen: app de Claude + conector MCP propio (interactivo) y routines/`pg_cron` (programado), ambos sobre el mismo backend en Supabase con permisos por rol.
@@ -24,7 +25,10 @@ Ver SPEC-002 §3. Resumen: app de Claude + conector MCP propio (interactivo) y r
 | Esquema base (`raw`, `health`, `ops`) | **Escrito y probado en PostgreSQL 16 local** (3 archivos de prueba, con comprobación de mutaciones). **No aplicado a ningún Supabase** |
 | CI (`.github/workflows/ci.yml`) | Ejecutada en GitHub en el PR #1: verde |
 | Proyecto Supabase | Creado por el usuario (según su mensaje); **no verificado ni conectado**. Sin acceso desde esta sesión |
-| Servidor MCP, Edge Functions, página de aprobación | **No existen** |
+| Motor de áreas (`core`, migración 2026-10-18) y áreas iniciales | **Escrito y probado en PostgreSQL 16 local** (pruebas 40 y 50). **No aplicado** |
+| Dashboard (`apps/dashboard`, PWA) | **Escrito**; compila y pasa sus pruebas. **No desplegado** |
+| Conector MCP (`supabase/functions/mcp`) | **Escrito**; pruebas del protocolo y comprobación con Deno. **No desplegado** |
+| Workflows `deploy`, `bootstrap`, `backup` | Escritos; manuales salvo la copia diaria. **Sin ejecutar** (faltan sus secretos) |
 | Integraciones (Zepp, Calendar) | **No existen** |
 | Datos personales cargados | **Ninguno** |
 
@@ -35,12 +39,15 @@ Ver SPEC-002 §3. Resumen: app de Claude + conector MCP propio (interactivo) y r
 - [x] Revisión y fusión del PR de P0 por el usuario (PR #1)
 - [x] Ejecución de CI en GitHub (verde)
 - [ ] Verificación del esquema contra un Supabase real (ver runbook)
-- [ ] P1: datos de partida, entrada manual, importación del CSV de Zepp, catálogo de equipamiento
+- [x] Dashboard, motor de áreas, conector y despliegue gratuito escritos (PR del 18-oct)
+- [ ] Puesta en marcha por el usuario: `docs/runbooks/dashboard-puesta-en-marcha.md`
+- [ ] Arranque de uso en enero de 2027 (sistema vacío)
+- [ ] Más adelante: importación del CSV de Zepp a `health`
 
 ## Riesgos y problemas conocidos
 Ver SPEC-001 §11 y SPEC-002 §10.1. Específicos de P0: conexión de roles en Supabase sin verificar; `service_role` ignora RLS; la versión de PostgreSQL de Supabase puede diferir de la 16 probada.
 
 ## Próximos pasos
-1. El usuario revisa el PR de P0.
-2. Verificar el flujo de roles en Supabase (runbook `docs/runbooks/p0-supabase.md`).
-3. Rellenar la plantilla de datos de partida; decidir el orden entrenamiento/nutrición.
+1. El usuario revisa y aprueba el PR del dashboard.
+2. Sigue el runbook `docs/runbooks/dashboard-puesta-en-marcha.md` (secretos, `deploy`, `bootstrap`, OAuth, iPhone, conector).
+3. Se comprueba en su proyecto lo marcado "sin verificar" en ese runbook.

@@ -17,3 +17,4 @@ data/
 exports/
 *.csv
 !supabase/**/*.csv
+*.tsbuildinfo

@@ -1,0 +1,64 @@
+# Copia de seguridad diaria CIFRADA (age) de SU base de datos, guardada 90 días como artefacto
+# privado del repositorio. Sin la clave privada de age (solo la tiene él) nadie puede leerla.
+# De paso mantiene el proyecto gratuito activo (Supabase pausa los inactivos ~7 días).
+name: backup
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+      REF: ${{ vars.SUPABASE_PROJECT_REF }}
+    steps:
+      - name: ¿Configurado?
+        id: cfg
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ] || [ -z "$REF" ]; then
+            echo "Supabase aún sin configurar; nada que copiar."; echo "ready=false" >> "$GITHUB_OUTPUT"
+          elif [ -z "$AGE_RECIPIENT" ]; then
+            echo "Falta BACKUP_AGE_RECIPIENT: sin él no se guarda ninguna copia (nunca en claro)."; exit 1
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.cfg.outputs.ready == 'true'
+      - uses: supabase/setup-cli@v1
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          version: 2.121.0
+
+      - name: Volcado y cifrado
+        if: steps.cfg.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq age >/dev/null
+          supabase link --project-ref "$REF" --password "$SUPABASE_DB_PASSWORD"
+          mkdir -p "$RUNNER_TEMP/dump" && cd "$RUNNER_TEMP/dump"
+          supabase db dump --linked --password "$SUPABASE_DB_PASSWORD" -f schema.sql
+          supabase db dump --linked --password "$SUPABASE_DB_PASSWORD" --data-only --use-copy -f data.sql
+          supabase db dump --linked --password "$SUPABASE_DB_PASSWORD" --data-only --schema auth -f auth.sql
+          STAMP=$(date -u +%Y%m%dT%H%MZ)
+          tar czf - schema.sql data.sql auth.sql | age -r "$AGE_RECIPIENT" > "$RUNNER_TEMP/lifeos-$STAMP.tar.gz.age"
+          shred -u schema.sql data.sql auth.sql
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          ls -l "$RUNNER_TEMP"/lifeos-*.age
+
+      - uses: actions/upload-artifact@v4
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          name: lifeos-backup-${{ env.STAMP }}
+          path: ${{ runner.temp }}/lifeos-*.tar.gz.age
+          retention-days: 90
+          if-no-files-found: error
