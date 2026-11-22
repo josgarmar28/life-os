@@ -27,6 +27,9 @@ test('primer acceso: código por correo, crear contraseña y volver a entrar con
   await page.getByRole('button', { name: 'Cerrar sesión' }).click();
 
   await login(page);
+  // Hoy enseña lo que toca; las áreas con sus tendencias están en su propia página.
+  await expect(page.getByRole('heading', { name: 'Por registrar' })).toBeVisible();
+  await page.getByRole('link', { name: /Todas las áreas y tendencias/ }).click();
   for (const area of ['Sueño', 'Entrenamiento', 'Cuerpo', 'Nutrición', 'Planificación', 'Proyectos', 'Finanzas', 'Pelo']) {
     await expect(card(page, new RegExp(area))).toBeVisible();
   }
@@ -53,6 +56,8 @@ test('registro de mañana: validar, guardar, corregir y borrar', async ({ page }
   await expect(page.getByText('Calidad del sueño: es obligatorio')).toBeVisible();
 
   await page.getByRole('radiogroup', { name: 'Calidad del sueño' }).getByRole('radio', { name: '4' }).click();
+  // Lo que se escribe (Zepp, horas, despertares) va plegado en "Más detalles".
+  await page.getByText('Más detalles').click();
   await page.getByLabel('Despertares').fill('2');
   await page.getByRole('radiogroup', { name: '¿Tardaste más de 30 min en dormirte?' }).getByRole('radio', { name: 'No' }).click();
   await page.getByRole('group', { name: 'Algo distinto' }).getByRole('button', { name: 'Ruido' }).click();

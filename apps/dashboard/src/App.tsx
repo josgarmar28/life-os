@@ -5,7 +5,7 @@ import { StructureProvider, useStructure } from './data';
 import { Link, match, useLocation } from './router';
 import { flushOutbox, isNetworkError, readOutbox } from './outbox';
 import { Login } from './pages/Login';
-import { Overview } from './pages/Overview';
+import { AreaCards, Overview } from './pages/Overview';
 import { AreaPage } from './pages/AreaPage';
 import { EntryForm } from './pages/EntryForm';
 import { ManageArea, ManageList } from './pages/Manage';
@@ -110,8 +110,9 @@ function Shell({ path }: { path: string }) {
   const under = (to: string) => path === to || path.startsWith(`${to}/`);
   const isOn = (to: string) => (to === '/' ? path === '/' : to === '/mas' ? MORE.some(under) : under(to));
   const tab = (to: string, label: string, badge?: number) => (
-    <Link to={to} className={isOn(to) ? 'tab on' : 'tab'}>
-      {label}{badge ? <span className="badge">{badge}</span> : null}
+    <Link to={to} className={isOn(to) ? 'tab on' : 'tab'} aria-current={isOn(to) ? 'page' : undefined}>
+      <TabIcon name={to} />
+      <span>{label}{badge ? <span className="badge">{badge}</span> : null}</span>
     </Link>
   );
 
@@ -133,22 +134,28 @@ function Shell({ path }: { path: string }) {
 }
 
 function AreasIndex() {
-  const s = useStructure();
   return (
     <main>
-      <header className="page-head"><h1>Áreas</h1></header>
-      <ul className="area-list">
-        {s.areas.filter((a) => a.status === 'active').map((a) => (
-          <li key={a.id}>
-            <Link to={`/a/${a.slug}`} className="area-tile">
-              <span className="icon">{a.icon}</span>
-              <span className="grow">{a.name}</span>
-              <span className="muted small">{s.forms.filter((f) => f.area_id === a.id && f.status === 'active').length} cuestionarios</span>
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <header className="page-head"><h1>Áreas</h1><p className="muted">Cada área con sus registros y tendencias.</p></header>
+      <AreaCards />
       <Link to="/gestion" className="btn wide">Crear, modificar o archivar áreas</Link>
     </main>
+  );
+}
+
+/** Iconos de la barra inferior (trazo, heredan el color de la pestaña). */
+function TabIcon({ name }: { name: string }) {
+  const paths: Record<string, string> = {
+    '/': 'M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z',
+    '/horario': 'M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z',
+    '/entreno': 'M6.5 6.5v11M17.5 6.5v11M3 9v6M21 9v6M6.5 12h11',
+    '/compra': 'M3 4h2l2.4 11.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 8H6M9 20.5h.01M17 20.5h.01',
+    '/mas': 'M5 12h.01M12 12h.01M19 12h.01',
+  };
+  return (
+    <svg className="tab-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={name === '/mas' ? 3.2 : 1.9}
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={paths[name]} />
+    </svg>
   );
 }

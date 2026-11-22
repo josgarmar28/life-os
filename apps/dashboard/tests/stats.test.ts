@@ -82,3 +82,26 @@ describe('formato', () => {
     expect(formatValue(field(), 73.65)).toBe('73,65 kg');
   });
 });
+
+import { dueToday } from '@shared/stats.ts';
+describe('qué toca hoy en Hoy', () => {
+  const pend = { done: false, label: '', last: null };
+  it('lo diario siempre que falte', () => {
+    expect(dueToday('daily', pend, '2027-01-11')).toBe(true);
+    expect(dueToday('daily', { ...pend, done: true }, '2027-01-11')).toBe(false);
+  });
+  it('lo semanal y quincenal solo el domingo', () => {
+    expect(dueToday('weekly', pend, '2027-01-11')).toBe(false); // lunes
+    expect(dueToday('weekly', pend, '2027-01-17')).toBe(true); // domingo
+    expect(dueToday('biweekly', pend, '2027-01-17')).toBe(true);
+  });
+  it('lo mensual desde el primer domingo del mes', () => {
+    expect(dueToday('monthly', pend, '2027-02-06')).toBe(false); // sábado; el primer domingo es el 7
+    expect(dueToday('monthly', pend, '2027-02-07')).toBe(true);
+    expect(dueToday('monthly', pend, '2027-02-20')).toBe(true);
+    expect(dueToday('monthly', pend, '2027-08-01')).toBe(true); // el 1 es domingo
+  });
+  it('lo libre o por sesión nunca', () => {
+    expect(dueToday('free', { done: null, label: '', last: null }, '2027-01-17')).toBe(false);
+  });
+});

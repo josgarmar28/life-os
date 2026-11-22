@@ -80,7 +80,7 @@ a { color: var(--accent); text-decoration: none; }
 .area-tile { display: flex; align-items: center; gap: 12px; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--border); background: var(--chip); color: var(--text);
   border-radius: 10px; padding: 10px 14px; font: inherit; font-weight: 600; cursor: pointer; min-height: 44px; }
-.btn.small { min-height: 34px; padding: 6px 10px; font-size: 0.88rem; }
+.btn.small { min-height: 44px; padding: 6px 12px; font-size: 0.9rem; }
 .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .btn.ghost { background: transparent; }
 .btn.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
@@ -133,8 +133,10 @@ ul.error { padding-left: 18px; }
 .login form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
 .tabs { position: fixed; bottom: 0; left: 0; right: 0; display: flex; background: var(--surface); border-top: 1px solid var(--border);
   padding-bottom: env(safe-area-inset-bottom); z-index: 10; }
-.tab { flex: 1; text-align: center; padding: 14px 4px; color: var(--muted); font-weight: 600; font-size: 0.92rem; position: relative; }
+.tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; padding: 8px 4px 6px; min-height: 56px; color: var(--muted); font-weight: 600; font-size: 0.72rem; position: relative; }
+.tab-icon { display: block; }
 .tab.on { color: var(--accent); }
+.tab.on::before { content: ''; position: absolute; top: 0; left: 30%; right: 30%; height: 3px; border-radius: 0 0 3px 3px; background: var(--accent); }
 .badge { display: inline-block; margin-left: 4px; background: var(--danger); color: #fff; border-radius: 999px; font-size: 0.72rem; padding: 0 6px; }
 .tag { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); vertical-align: 1px; }
 .tag.new { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
@@ -260,3 +262,19 @@ body.focus .tabs { display: none; }
 .plan-group h3 { margin-top: 10px; }
 .workout-head h1 { font-size: 1.3rem; }
 .workout-head p { margin: 0; }
+
+/* Hoy */
+.todo-item { display: flex; align-items: center; gap: 10px; min-height: 48px; color: var(--text); }
+.todo-icon { width: 1.6em; text-align: center; flex: none; }
+.chev { color: var(--muted); font-size: 1.3rem; line-height: 1; }
+details.later { margin-top: 6px; }
+details.later > summary { padding: 8px 0; cursor: pointer; }
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--border); color: var(--text); min-height: 96px; }
+.tile .spark { color: var(--accent); width: 100%; }
+.tile-value { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+
+/* Formularios */
+.day-line { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; }
+details.more { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 4px; }
+details.more > summary { padding: 12px 0; font-weight: 650; cursor: pointer; min-height: 44px; }

@@ -22,6 +22,8 @@ export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; f
   const [prev, setPrev] = useState<Entry | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [pickDate, setPickDate] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   // Un request_id por apertura del formulario: reenviar (doble toque, reintento) nunca duplica.
   const [requestId] = useState(() => crypto.randomUUID());
 
@@ -62,10 +64,38 @@ export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; f
 
   const set = (key: string, v: Cell | Row[]) => setState((st) => ({ ...st, [key]: v }));
 
+  // Formularios largos (p. ej. el registro de mañana): primero lo que se contesta con un toque y lo
+  // obligatorio; lo que hay que escribir (datos de Zepp, horas, notas) va en "Más detalles".
+  const TAP = ['scale', 'boolean', 'choice', 'multi'];
+  const split = fields.length >= 8 && !hasTable;
+  const primary = split ? fields.filter((f) => f.required || TAP.includes(f.type)) : fields;
+  const secondary = split ? fields.filter((f) => !primary.includes(f)) : [];
+  const filled = (f: (typeof fields)[number]) => { const v = state[f.key]; return Array.isArray(v) ? v.length > 0 : v !== '' && v !== null && v !== undefined; };
+  const renderField = (f: (typeof fields)[number]) => (
+    <div className="field" key={f.id}>
+      <label className="label" htmlFor={`f-${f.key}`}>{f.label}{f.required ? ' *' : ''}</label>
+      {f.type === 'table' && last && Array.isArray(last.data[f.key]) && (last.data[f.key] as unknown[]).length ? (
+        <button type="button" className="btn small ghost copy-last"
+          onClick={() => set(f.key, (fromData([f], last.data)[f.key] as Row[]) ?? [])}>
+          Copiar de la última vez ({last.local_date.slice(8)}/{last.local_date.slice(5, 7)}, {(last.data[f.key] as unknown[]).length} filas)
+        </button>
+      ) : null}
+      {f.help ? <p className="muted small">{f.help}</p> : null}
+      {f.type === 'table'
+        ? <TableInput field={f} rows={(state[f.key] as Row[]) ?? []} onChange={(rows) => set(f.key, rows)} />
+        : <ScalarInput id={`f-${f.key}`} type={f.type} label={f.label} unit={f.unit} min={f.min} max={f.max} step={f.step}
+            options={f.options} value={(state[f.key] as Cell) ?? ''} onChange={(v) => set(f.key, v)} />}
+    </div>
+  );
+  const dayLabel = date === today ? 'hoy' : new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));
+
   async function submit() {
     const { data, errors: errs } = toPayload(fields, state);
     setErrors(errs);
-    if (errs.length) return;
+    if (errs.length) {
+      if (secondary.some((f) => errs.some((e) => e.startsWith(`${f.label}:`)))) setMoreOpen(true);
+      return;
+    }
     setBusy(true);
     try {
       const occurredAt = prev ? prev.occurred_at : date === today ? new Date().toISOString() : new Date(`${date}T12:00:00`).toISOString();
@@ -97,26 +127,24 @@ export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; f
         {prev ? <p className="banner">Estás corrigiendo un registro: se guarda como versión nueva y la anterior queda en el historial.</p> : null}
       </header>
       <form className="entry-form" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-        <label className="field">
-          <span className="label">Día</span>
-          <input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} disabled={Boolean(prev)} />
-        </label>
-        {fields.map((f) => (
-          <div className="field" key={f.id}>
-            <label className="label" htmlFor={`f-${f.key}`}>{f.label}{f.required ? ' *' : ''}</label>
-            {f.type === 'table' && last && Array.isArray(last.data[f.key]) && (last.data[f.key] as unknown[]).length ? (
-              <button type="button" className="btn small ghost copy-last"
-                onClick={() => set(f.key, (fromData([f], last.data)[f.key] as Row[]) ?? [])}>
-                Copiar de la última vez ({last.local_date.slice(8)}/{last.local_date.slice(5, 7)}, {(last.data[f.key] as unknown[]).length} filas)
-              </button>
-            ) : null}
-            {f.help ? <p className="muted small">{f.help}</p> : null}
-            {f.type === 'table'
-              ? <TableInput field={f} rows={(state[f.key] as Row[]) ?? []} onChange={(rows) => set(f.key, rows)} />
-              : <ScalarInput id={`f-${f.key}`} type={f.type} label={f.label} unit={f.unit} min={f.min} max={f.max} step={f.step}
-                  options={f.options} value={(state[f.key] as Cell) ?? ''} onChange={(v) => set(f.key, v)} />}
-          </div>
-        ))}
+        {pickDate && !prev ? (
+          <label className="field">
+            <span className="label">Día</span>
+            <input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} />
+          </label>
+        ) : (
+          <p className="day-line">
+            <span className="muted">Día: <strong className="cap">{dayLabel}</strong></span>
+            {!prev ? <button type="button" className="link" onClick={() => setPickDate(true)}>Cambiar</button> : null}
+          </p>
+        )}
+        {primary.map(renderField)}
+        {secondary.length ? (
+          <details className="more" open={moreOpen} onToggle={(e) => setMoreOpen((e.target as HTMLDetailsElement).open)}>
+            <summary>Más detalles <span className="muted small">({secondary.filter(filled).length ? `${secondary.filter(filled).length} de ${secondary.length} rellenos` : secondary.map((f) => f.label).slice(0, 3).join(', ') + '…'})</span></summary>
+            {secondary.map(renderField)}
+          </details>
+        ) : null}
         <label className="field">
           <span className="label">Nota</span>
           <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} />

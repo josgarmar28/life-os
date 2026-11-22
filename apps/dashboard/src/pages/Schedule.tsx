@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { addDays, localDate, weekStart } from '@shared/stats.ts';
 import {
   agendaFor, isoWeekday, localTime, nowAndNext, weekSettings, WEEKDAYS, WEEKDAY_NAME, WEEKDAY_SHORT,
@@ -21,6 +21,13 @@ export function Schedule({ date: initial }: { date?: string }) {
     meals: plans.meals?.content ?? null, weeks: p.weeks, deliveries: p.orders,
   });
   const current = date === today ? nowAndNext(agenda.items, localTime(new Date(), s.timezone)).now : null;
+  // Al abrir el día de hoy, el bloque actual queda a la vista (no las 05:00).
+  const scrolled = useRef(false);
+  useEffect(() => {
+    if (scrolled.current || !current) return;
+    scrolled.current = true;
+    document.querySelector('ol.agenda li.now')?.scrollIntoView({ block: 'center' });
+  }, [current]);
 
   if (!plans.schedule && !p.loading) {
     return (

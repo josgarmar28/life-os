@@ -56,6 +56,29 @@ export function periodStatus(cadence: Cadence, dates: string[], today: string): 
   }
 }
 
+/**
+ * ¿Toca hoy? Lo diario, si falta; lo semanal y quincenal, el domingo (último día de su semana);
+ * lo mensual, desde el primer domingo del mes (su cierre). Lo libre o por sesión, nunca.
+ */
+export function dueToday(cadence: Cadence, status: PeriodStatus, today: string): boolean {
+  if (status.done !== false) return false;
+  const wd = new Date(`${today}T12:00:00Z`).getUTCDay(); // 0 = domingo
+  switch (cadence) {
+    case 'daily':
+      return true;
+    case 'weekly':
+    case 'biweekly':
+      return wd === 0;
+    case 'monthly': {
+      const first = new Date(`${today.slice(0, 7)}-01T12:00:00Z`).getUTCDay();
+      const firstSunday = 1 + ((7 - first) % 7);
+      return Number(today.slice(8)) >= firstSunday;
+    }
+    default:
+      return false;
+  }
+}
+
 export interface Point {
   date: string;
   value: number;
