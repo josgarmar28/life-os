@@ -191,6 +191,10 @@ test('compra: contar la despensa, lista de lo que falta, pedir y recibir', async
   const before = Number(await tomate.locator('.qty').textContent());
   await page.getByRole('button', { name: 'Más Tomate triturado' }).click();
   await expect(tomate.locator('.qty')).toHaveText(String(before + 1));
+  // Al pasar la lista a la app de la tienda, se tacha con un toque (y se recuerda en el teléfono).
+  const enCarrito = page.getByRole('checkbox', { name: 'Tomate triturado en el carrito' });
+  await enCarrito.click();
+  await expect(enCarrito).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: 'He hecho el pedido' }).click();
   await expect(page.getByText(/Pedido guardado para el/)).toBeVisible();
   expect(sql(`select (items @> '[{"product":"tomate","packages":${before + 1}}]')::text || status from core.shopping_order`)).toBe('trueordered');

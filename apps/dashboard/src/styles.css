@@ -111,7 +111,7 @@ textarea { resize: vertical; }
 .tcells { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
 .tcell.wide { grid-column: 1 / -1; }
 .tcell span { font-size: 0.8rem; color: var(--muted); }
-.sticky-actions { position: sticky; bottom: calc(72px + env(safe-area-inset-bottom)); padding: 12px 0; background: linear-gradient(transparent, var(--bg) 30%); }
+.sticky-actions { position: sticky; bottom: calc(57px + env(safe-area-inset-bottom)); padding: 12px 0; background: linear-gradient(transparent, var(--bg) 30%); }
 .error { color: var(--danger); }
 ul.error { padding-left: 18px; }
 .entries { list-style: none; padding: 0; margin: 0; }
@@ -251,7 +251,7 @@ body.focus .tabs { display: none; }
 .subtabs a { flex: 1; text-align: center; padding: 8px 4px; border-radius: 9px; color: var(--muted); font-weight: 600; }
 .subtabs a.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
 .stepper { display: inline-flex; align-items: center; gap: 2px; flex: none; }
-.stepper .btn { min-width: 34px; padding: 4px; }
+.stepper .btn { min-width: 44px; padding: 4px; }
 .stepper .qty { min-width: 1.6em; text-align: center; font-weight: 650; font-variant-numeric: tabular-nums; }
 .shop-list .price { flex: none; width: 5.6em; text-align: right; font-variant-numeric: tabular-nums; }
 .total { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--border); padding-top: 10px; margin: 6px 0 10px; }
@@ -278,3 +278,27 @@ details.later > summary { padding: 8px 0; cursor: pointer; }
 .day-line { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; }
 details.more { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 4px; }
 details.more > summary { padding: 12px 0; font-weight: 650; cursor: pointer; min-height: 44px; }
+
+/* Compra: lista agrupada */
+.shop-group h3 { margin: 12px 0 2px; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.shop-list li { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; grid-template-areas: "chk name price" "chk sub step"; column-gap: 12px; row-gap: 4px; align-items: center; }
+.shop-list .cart-check { grid-area: chk; }
+.shop-list .shop-name { grid-area: name; font-weight: 600; }
+.shop-list .shop-sub { grid-area: sub; }
+.shop-list .stepper { grid-area: step; justify-self: end; }
+.shop-list .price { grid-area: price; width: auto; }
+.cart-check { flex: none; width: 28px; height: 28px; border-radius: 8px; border: 2px solid var(--border); background: var(--surface); color: var(--accent-text); display: inline-flex; align-items: center; justify-content: center; font-weight: 800; padding: 0; cursor: pointer; position: relative; }
+.cart-check::after { content: ''; position: absolute; inset: -8px; }
+.in-cart .cart-check { background: var(--ok); border-color: var(--ok); color: #fff; }
+.in-cart .shop-name { text-decoration: line-through; color: var(--muted); }
+
+/* Pulido general */
+html { -webkit-tap-highlight-color: transparent; }
+.card { box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 1px rgb(15 23 42 / 0.03); }
+@media (prefers-color-scheme: dark) { .card { box-shadow: none; } }
+.btn, .chip, .tile, .todo-item, .set-row { transition: transform 0.08s ease, background-color 0.15s ease; }
+.btn:active:not(:disabled), .chip:active, .tile:active, .set-row:active { transform: scale(0.97); }
+:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 2px; border-radius: 6px; }
+.page-head h1 { letter-spacing: -0.01em; }
+@media (prefers-reduced-motion: reduce) { .btn, .chip, .tile, .todo-item, .set-row { transition: none; } .btn:active:not(:disabled), .chip:active, .tile:active, .set-row:active { transform: none; } }
+.field-help { margin: 2px 0 6px; }

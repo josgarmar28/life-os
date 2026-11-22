@@ -80,7 +80,7 @@ export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; f
           Copiar de la última vez ({last.local_date.slice(8)}/{last.local_date.slice(5, 7)}, {(last.data[f.key] as unknown[]).length} filas)
         </button>
       ) : null}
-      {f.help ? <p className="muted small">{f.help}</p> : null}
+      {f.help ? <p className="muted small field-help">{f.help}</p> : null}
       {f.type === 'table'
         ? <TableInput field={f} rows={(state[f.key] as Row[]) ?? []} onChange={(rows) => set(f.key, rows)} />
         : <ScalarInput id={`f-${f.key}`} type={f.type} label={f.label} unit={f.unit} min={f.min} max={f.max} step={f.step}
