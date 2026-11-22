@@ -7,8 +7,14 @@ import type { Area, Entry, Field, Form, Proposal } from '../_shared/model.ts';
 import { byOrder } from '../_shared/model.ts';
 import { addDays, formatValue, localDate, summarizeForm } from '../_shared/stats.ts';
 import { summarizeWeek, weekRange } from '../_shared/week.ts';
+import {
+  agendaFor, awayDates, isoWeekday, localTime, nowAndNext, PLAN_LABEL, planFor, planSummary, validatePlan, weekSettings, WEEKDAY_NAME,
+  type MealsPlan, type PlanKind, type PlanRow, type SchedulePlan, type TrainingPlan, type WeekRow,
+} from '../_shared/plans.ts';
+import { estimateStock, formatQty, shoppingList, type StockMove } from '../_shared/shopping.ts';
+import { weekStart } from '../_shared/stats.ts';
 
-export const SERVER_INFO = { name: 'lifeos', title: 'LIFE OS', version: '0.2.0' };
+export const SERVER_INFO = { name: 'lifeos', title: 'LIFE OS', version: '0.3.0' };
 export const SUPPORTED_PROTOCOLS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 
 export const INSTRUCTIONS = [
@@ -19,6 +25,8 @@ export const INSTRUCTIONS = [
   'Cambiar la estructura (áreas, formularios, campos) se hace con lifeos_propose_change; él lo aprueba en el dashboard.',
   'Para revisiones (semana, tendencias, cómo se influyen sueño, entreno, nutrición, estrés y agenda) usa lifeos_week y lifeos_overview antes de opinar, y separa lo que dicen los datos de lo que infieres.',
   'Él registra en el dashboard; tú registras solo cuando te lo pide expresamente en el chat.',
+  'Horario, rutina y menú son planes versionados: léelos con lifeos_agenda y lifeos_plan; para cambiarlos, propone una versión nueva con lifeos_propose_change (kind plan.save) y él la aprueba.',
+  'La despensa se estima con el menú; lifeos_pantry da el stock y la lista de lo que falta.',
   'Las fotos corporales y de pelo no existen aquí y no deben subirse a ningún sitio.',
 ].join(' ');
 
@@ -29,6 +37,10 @@ export interface Api {
   fields(): Promise<Field[]>;
   entries(q: { ids?: string[]; formIds?: string[]; from?: string; to?: string; limit: number }): Promise<Entry[]>;
   proposals(q: { status?: string; limit: number }): Promise<Proposal[]>;
+  plans(): Promise<PlanRow[]>;
+  weeks(): Promise<WeekRow[]>;
+  stockMoves(): Promise<{ product: string; kind: StockMove['kind']; qty: number; occurred_at: string }[]>;
+  orders(): Promise<OrderRow[]>;
   rpc<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T>;
   timezone(): Promise<string>;
 }
@@ -54,6 +66,14 @@ interface JsonRpcResponse {
 }
 
 export class ToolError extends Error {}
+
+export interface OrderRow {
+  id: string;
+  status: 'ordered' | 'received' | 'cancelled';
+  delivery_date: string;
+  items: { product: string; packages: number; amount: number; price?: number }[];
+  total: number | null;
+}
 
 interface Tool {
   name: string;
@@ -239,6 +259,177 @@ export const TOOLS: Tool[] = [
     },
   },
   {
+    name: 'lifeos_agenda',
+    title: 'Qué toca un día',
+    description: 'Agenda de un día según su horario, rutina y menú: bloques con hora, sesión de entreno con ejercicios, comidas con receta, cocina por lotes y entregas, teniendo en cuenta sus días de teletrabajo y fuera de casa de esa semana. Indica qué toca ahora y después si es hoy.',
+    inputSchema: {
+      type: 'object',
+      properties: { date: { type: 'string', description: 'YYYY-MM-DD (por defecto, hoy en su zona horaria).' } },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    async run(args, { api, now }) {
+      const tz = await api.timezone();
+      const today = localDate(now, tz);
+      const date = str(args.date, 'date') ?? today;
+      if (!isDate(date)) throw new ToolError('"date" debe ser YYYY-MM-DD.');
+      const [plans, weeks, orders] = await Promise.all([api.plans(), api.weeks(), api.orders()]);
+      const schedule = planFor<SchedulePlan>(plans, 'schedule', date);
+      const training = planFor<TrainingPlan>(plans, 'training', date);
+      const meals = planFor<MealsPlan>(plans, 'meals', date);
+      if (!schedule && !training && !meals) return { date, note: 'Aún no hay planes importados en el dashboard.' };
+      const a = agendaFor({ date, schedule: schedule?.content ?? null, training: training?.content ?? null, meals: meals?.content ?? null, weeks, deliveries: orders });
+      const nn = date === today ? nowAndNext(a.items, localTime(now, tz)) : null;
+      const preview = [schedule, training, meals].filter((x) => x?.preview).map((x) => `${PLAN_LABEL[x!.row.kind]} empieza el ${x!.row.valid_from}`);
+      return {
+        date, weekday: WEEKDAY_NAME[isoWeekday(date)], timezone: tz,
+        telework: a.telework, away: a.away,
+        ...(preview.length ? { preview_only: preview } : {}),
+        ...(nn ? { now: nn.now?.title ?? null, next: nn.next ? `${nn.next.start} ${nn.next.title}` : null } : {}),
+        items: a.items.map((i) => ({
+          start: i.start, end: i.end, title: i.title, detail: i.detail,
+          ...(i.training ? { training: { name: i.training.name, kind: i.training.kind, exercises: i.training.exercises.map((x) => x.sets ? `${x.name}: ${x.sets}×${x.reps?.[0]}-${x.reps?.[1]}${x.rir ? ` RIR ${x.rir[0]}-${x.rir[1]}` : ''}` : `${x.name}${x.minutes ? ` ${x.minutes} min` : ''}`) } } : {}),
+          ...(i.meal ? { meal: { slot: i.meal.meal.slot, recipe: i.meal.recipe.name, note: i.meal.meal.note } } : {}),
+          ...(i.cook ? { cook: i.cook.recipes.map((r) => `${r.recipe.name} × ${r.servings}`) } : {}),
+          ...(i.delivery ? { delivery: `${i.delivery.items} productos` } : {}),
+        })),
+      };
+    },
+  },
+  {
+    name: 'lifeos_plan',
+    title: 'Leer un plan',
+    description: 'Devuelve el plan vigente (o el próximo, si aún no ha empezado) de un tipo: schedule (horario por bloques), training (rutina por día con ejercicios, series, reps, RIR, descanso y tipo de carga) o meals (productos con envase y precio, recetas por ración, menú semanal, sesiones de cocina y parámetros del pedido). Incluye el contenido exacto para proponer una versión nueva con lifeos_propose_change (plan.save), y la lista de versiones.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['schedule', 'training', 'meals'] },
+        date: { type: 'string', description: 'Fecha a la que se refiere, YYYY-MM-DD (por defecto, hoy).' },
+      },
+      required: ['kind'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    async run(args, { api, now }) {
+      const kind = str(args.kind, 'kind', true) as PlanKind;
+      if (!PLAN_LABEL[kind]) throw new ToolError('"kind" debe ser schedule, training o meals.');
+      const date = str(args.date, 'date') ?? localDate(now, await api.timezone());
+      if (!isDate(date)) throw new ToolError('"date" debe ser YYYY-MM-DD.');
+      const plans = await api.plans();
+      const cur = planFor<unknown>(plans, kind, date);
+      return {
+        kind, label: PLAN_LABEL[kind],
+        versions: plans.filter((p) => p.kind === kind).sort((a, b) => b.version - a.version)
+          .map((p) => ({ version: p.version, name: p.name, valid_from: p.valid_from, status: p.status, source: p.source })),
+        current: cur ? { version: cur.row.version, name: cur.row.name, valid_from: cur.row.valid_from, preview: cur.preview, summary: planSummary(kind, cur.content), content: cur.content } : null,
+      };
+    },
+  },
+  {
+    name: 'lifeos_pantry',
+    title: 'Despensa y lista de la compra',
+    description: 'Stock estimado de cada producto del menú (último recuento + compras − lo que el menú gasta cada día, sin contar los días fuera de casa) y la lista de lo que falta para un pedido con entrega en una fecha, en envases y con coste. Lo pedido y aún no recibido cuenta como si llegara en su fecha.',
+    inputSchema: {
+      type: 'object',
+      properties: { delivery: { type: 'string', description: 'Día de entrega del próximo pedido, YYYY-MM-DD (por defecto, dentro de 3 días).' } },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    async run(args, { api, now }) {
+      const tz = await api.timezone();
+      const today = localDate(now, tz);
+      const delivery = str(args.delivery, 'delivery') ?? addDays(today, 3);
+      if (!isDate(delivery) || delivery <= today) throw new ToolError('"delivery" debe ser una fecha futura YYYY-MM-DD.');
+      const [plans, weeks, rawMoves, orders] = await Promise.all([api.plans(), api.weeks(), api.stockMoves(), api.orders()]);
+      const meals = planFor<MealsPlan>(plans, 'meals', today);
+      if (!meals) return { note: 'Aún no hay menú importado en el dashboard.' };
+      const moves: StockMove[] = rawMoves.map((m) => ({ ...m, qty: Number(m.qty), local_date: localDate(new Date(m.occurred_at), tz) }));
+      const incoming: StockMove[] = orders.filter((o) => o.status === 'ordered' && o.delivery_date <= delivery)
+        .flatMap((o) => o.items.map((i) => ({ product: i.product, kind: 'purchase' as const, qty: i.amount, occurred_at: `${o.delivery_date}T09:00:00Z`, local_date: o.delivery_date })));
+      const from = meals.preview ? addDays(meals.row.valid_from, -1) : today;
+      const away = awayDates(weeks, addDays(today, -400), addDays(delivery, 60));
+      const clamp = (m: StockMove) => (m.local_date > from ? { ...m, local_date: from } : m);
+      const stock = estimateStock(meals.content, [...moves, ...incoming].map(clamp), from, away);
+      const list = shoppingList(meals.content, stock, from, delivery > from ? delivery : addDays(from, 1), { away });
+      const line = (l: typeof list.lines[number]) => ({ product: l.product.key, name: l.product.name, packages: l.packages, need: formatQty(l.product, l.need), at_delivery: l.unknown ? 'sin contar' : formatQty(l.product, l.atDelivery), cost: l.cost });
+      return {
+        today, ...(meals.preview ? { note: `El menú empieza el ${meals.row.valid_from}: hasta entonces no se descuenta nada.` } : {}),
+        stock: stock.map((s) => ({ product: s.product.key, name: s.product.name, storage: s.product.storage, estimate: s.qty === null ? null : formatQty(s.product, Math.max(0, s.qty)), counted: s.counted, days_left: s.daysLeft === null ? null : Math.round(s.daysLeft) })),
+        shopping: {
+          delivery: list.delivery, covers_until: list.until, total: list.total, min_order: meals.content.min_order ?? null,
+          lines: list.lines.filter((l) => l.packages > 0).map(line), other_shops: list.other.filter((l) => l.packages > 0).map(line),
+          pending_orders: orders.filter((o) => o.status === 'ordered').map((o) => ({ delivery_date: o.delivery_date, items: o.items.length })),
+        },
+      };
+    },
+  },
+  {
+    name: 'lifeos_record_stock',
+    title: 'Registrar despensa',
+    description: 'Registra recuentos (count: lo que hay ahora), compras (purchase) o ajustes (adjust, con signo, p. ej. algo caducado) de productos del menú, solo cuando él lo pide en el chat. qty en la unidad del producto (g, ml o ud; ver lifeos_plan meals). Usa el mismo request_id para reintentar sin duplicar.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        moves: {
+          type: 'array', minItems: 1, maxItems: 100,
+          items: {
+            type: 'object',
+            properties: { product: { type: 'string' }, kind: { type: 'string', enum: ['count', 'purchase', 'adjust'] }, qty: { type: 'number' }, note: { type: 'string' } },
+            required: ['product', 'kind', 'qty'], additionalProperties: false,
+          },
+        },
+        request_id: { type: 'string', description: 'UUID para reintentar sin duplicar.' },
+      },
+      required: ['moves'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async run(args, { api, newId }) {
+      const moves = args.moves as { product: string; kind: string; qty: number }[];
+      if (!Array.isArray(moves) || !moves.length) throw new ToolError('Falta "moves".');
+      const meals = planFor<MealsPlan>(await api.plans(), 'meals', '9999-12-31');
+      const known = new Set((meals?.content.products ?? []).map((p) => p.key));
+      const unknown = moves.filter((m) => !known.has(m.product)).map((m) => m.product);
+      if (unknown.length) throw new ToolError(`Productos que no están en el menú: ${unknown.join(', ')}. Usa las claves de lifeos_plan meals.`);
+      const requestId = str(args.request_id, 'request_id') ?? newId();
+      if (!isUuid(requestId)) throw new ToolError('"request_id" debe ser un UUID.');
+      const n = await api.rpc<number>('record_stock', { p_moves: moves, p_request_id: requestId });
+      return { recorded: n, request_id: requestId };
+    },
+  },
+  {
+    name: 'lifeos_set_week',
+    title: 'Ajustar una semana',
+    description: 'Fija los días de teletrabajo y los días fuera de casa de una semana (1 = lunes … 7 = domingo), cuando él te lo dice. El horario, la cocina corta y la despensa se ajustan solos. Sustituye lo que hubiera para esa semana.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'Cualquier día de la semana, YYYY-MM-DD.' },
+        telework: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 5 } },
+        away: { type: 'array', items: { type: 'integer', minimum: 1, maximum: 7 } },
+        note: { type: 'string' },
+      },
+      required: ['date', 'telework'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async run(args, { api }) {
+      const date = str(args.date, 'date', true)!;
+      if (!isDate(date)) throw new ToolError('"date" debe ser YYYY-MM-DD.');
+      const days = (v: unknown, max: number, name: string) => {
+        if (v === undefined) return [];
+        if (!Array.isArray(v) || v.some((d) => !Number.isInteger(d) || d < 1 || d > max)) throw new ToolError(`"${name}" debe ser una lista de días 1-${max}.`);
+        return [...new Set(v as number[])].sort();
+      };
+      const telework = days(args.telework, 5, 'telework');
+      const away = days(args.away, 7, 'away');
+      const ws = weekStart(date);
+      await api.rpc('save_week', { p_week_start: ws, p_telework: telework, p_away: away, p_note: str(args.note, 'note') ?? '' });
+      const schedule = planFor<SchedulePlan>(await api.plans(), 'schedule', ws);
+      return { week_start: ws, ...weekSettings([{ week_start: ws, telework: telework as WeekRow['telework'], away: away as WeekRow['away'], note: '' }], schedule?.content ?? null, ws) };
+    },
+  },
+  {
     name: 'lifeos_entries',
     title: 'Leer registros',
     description: 'Devuelve los registros vigentes (sin versiones corregidas ni borradas) de un área o formulario y un rango de fechas, con valores en bruto y legibles.',
@@ -399,12 +590,13 @@ export const TOOLS: Tool[] = [
       + 'area.save {slug, name, description?, icon?, sort_order?}; '
       + 'form.save {area, slug, name, description?, cadence (daily|weekly|biweekly|monthly|per_session|free), sort_order?, fields?: [campo…]} crea o modifica el cuestionario y sus campos de una vez; '
       + 'field.save {area, form, key, label, type, help?, unit?, min?, max?, step?, options? [{value,label}], columns? [{key,label,type,unit?,min?,max?,required?,options?}], required?, on_overview?, sort_order?}; '
-      + 'form.archive {area, form}; field.archive {area, form, key}; note {text} para una recomendación sin cambios. '
+      + 'form.archive {area, form}; field.archive {area, form, key}; note {text} para una recomendación sin cambios; '
+      + 'plan.save {kind (schedule|training|meals), name, valid_from YYYY-MM-DD, content} crea una versión nueva y completa de un plan (parte de lifeos_plan y cambia solo lo necesario; content con el mismo formato). '
       + 'Tipos: number, integer, scale, boolean, text, choice, multi, date, time, duration (minutos), table. Las claves son minúsculas con guiones bajos. La clave y el tipo de un campo existente no cambian: archívalo y crea otro.',
     inputSchema: {
       type: 'object',
       properties: {
-        kind: { type: 'string', enum: ['area.save', 'form.save', 'field.save', 'form.archive', 'field.archive', 'note'] },
+        kind: { type: 'string', enum: ['area.save', 'form.save', 'field.save', 'form.archive', 'field.archive', 'plan.save', 'note'] },
         payload: { type: 'object' },
         rationale: { type: 'string', description: 'Por qué, en una o dos frases, para que él decida.' },
       },
@@ -413,6 +605,14 @@ export const TOOLS: Tool[] = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     async run(args, { api }) {
+      if (args.kind === 'plan.save') {
+        const x = (args.payload ?? {}) as Record<string, unknown>;
+        if (!PLAN_LABEL[x.kind as PlanKind]) throw new ToolError('plan.save: kind debe ser schedule, training o meals.');
+        if (typeof x.name !== 'string' || !x.name.trim()) throw new ToolError('plan.save: falta name.');
+        if (typeof x.valid_from !== 'string' || !isDate(x.valid_from)) throw new ToolError('plan.save: valid_from debe ser YYYY-MM-DD.');
+        const errors = validatePlan(x.kind as PlanKind, x.content);
+        if (errors.length) throw new ToolError(`plan.save: el plan no es válido:\n- ${errors.slice(0, 20).join('\n- ')}`);
+      }
       const id = await api.rpc<string>('create_proposal', {
         p_kind: str(args.kind, 'kind', true),
         p_payload: args.payload,

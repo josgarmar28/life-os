@@ -2,7 +2,7 @@
 
 Sistema operativo personal: una base de datos única (Supabase/PostgreSQL), lógica determinista en TypeScript y agentes de Claude con permisos mínimos, bajo aprobación humana.
 
-> **Estado:** dashboard, motor de áreas y conector de Claude escritos y probados; **sin desplegar** hasta que el usuario siga `docs/runbooks/dashboard-puesta-en-marcha.md`. No hay datos personales en el repositorio.
+> **Estado:** dashboard (con horario, modo entreno y compra), motor de áreas y conector de Claude escritos y probados; **sin desplegar** hasta que el usuario siga `docs/runbooks/dashboard-puesta-en-marcha.md`. No hay datos personales en el repositorio: los planes reales se importan desde la carpeta privada del usuario (el repositorio solo tiene planes sintéticos de prueba en `apps/dashboard/e2e/fixtures/`).
 
 ## Contenido
 
@@ -18,7 +18,7 @@ Sistema operativo personal: una base de datos única (Supabase/PostgreSQL), lóg
 | `scripts/e2e/` | Pila local con Supabase Auth, PostgREST y el conector para las pruebas de principio a fin. |
 | `supabase/seed/` | Áreas y cuestionarios iniciales (solo estructura). |
 | `supabase/functions/mcp/` | Conector MCP para Claude (Edge Function con OAuth de Supabase). |
-| `supabase/functions/_shared/` | TypeScript puro compartido por el conector y el dashboard (modelo, estadísticas). |
+| `supabase/functions/_shared/` | TypeScript puro compartido por el conector y el dashboard (modelo, estadísticas, planes y agenda, progresión, despensa y compra). |
 | `apps/dashboard/` | Dashboard web instalable (React + Vite, PWA). |
 | `.github/workflows/` | `ci` (pruebas), `deploy` y `bootstrap` (manuales), `backup` (copia diaria cifrada). |
 

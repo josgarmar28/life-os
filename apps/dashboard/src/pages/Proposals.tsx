@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { FieldType, Proposal } from '@shared/model.ts';
 import { CADENCE_LABEL, TYPE_LABEL } from '@shared/model.ts';
+import { PLAN_LABEL, planSummary, validatePlan, type PlanKind } from '@shared/plans.ts';
+import { usePlans } from '../plans';
 import { loadProposals, useAsync, useStructure } from '../data';
 import { explainError, rpc } from '../supabase';
 
@@ -10,6 +12,7 @@ const KIND_LABEL: Record<Proposal['kind'], string> = {
   'field.save': 'Crear o cambiar un campo',
   'form.archive': 'Archivar un cuestionario',
   'field.archive': 'Archivar un campo',
+  'plan.save': 'Nueva versión de un plan',
   note: 'Recomendación',
 };
 const STATUS_LABEL: Record<Proposal['status'], string> = {
@@ -18,6 +21,7 @@ const STATUS_LABEL: Record<Proposal['status'], string> = {
 
 export function Proposals() {
   const s = useStructure();
+  const plans = usePlans();
   const list = useAsync(loadProposals, []);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -29,7 +33,7 @@ export function Proposals() {
       // El hash ata la aprobación a exactamente lo que ves en pantalla.
       const r = await rpc<{ status: string; error?: string }>('decide_proposal', { p_id: p.id, p_approve: approve, p_payload_hash: p.payload_hash });
       if (r.status === 'failed') setError(`No se pudo aplicar: ${explainError(new Error(r.error ?? ''))}`);
-      await Promise.all([list.reload(), s.reload()]);
+      await Promise.all([list.reload(), s.reload(), plans.reload()]);
     } catch (e) {
       setError(explainError(e));
     } finally {
@@ -112,9 +116,28 @@ function Summary({ p }: { p: Proposal }) {
       return <p>{tag} <span className="muted">{where} ›</span> {fieldLine(x)}{field && field.label !== x.label ? <span className="muted"> (antes: {field.label})</span> : null}</p>;
     case 'form.archive':
       return <p>Archivar <strong>{form?.name ?? text(x.form ?? x.id)}</strong> <span className="muted">en {area?.name ?? text(x.area)}</span>. Los datos se conservan.</p>;
+    case 'plan.save':
+      return <PlanSummary x={x} />;
     case 'field.archive':
       return <p>Archivar el campo <strong>{field?.label ?? text(x.key ?? x.id)}</strong> <span className="muted">de {where}</span>. Los datos se conservan.</p>;
     default:
       return <p className="note">{text(x.text)}</p>;
   }
+}
+
+function PlanSummary({ x }: { x: P }) {
+  const p = usePlans();
+  const kind = x.kind as PlanKind;
+  if (!PLAN_LABEL[kind]) return <p className="error">Tipo de plan desconocido: {text(x.kind)}</p>;
+  const current = p.plans.filter((r) => r.kind === kind && r.status === 'active').sort((a, b) => b.version - a.version)[0];
+  const errors = validatePlan(kind, x.content);
+  return (
+    <div>
+      <p><span className="tag new">{current ? `Versión ${current.version + 1}` : 'Nuevo'}</span> <strong>{PLAN_LABEL[kind]}: {text(x.name)}</strong>
+        <span className="muted"> · rige desde el {new Date(`${text(x.valid_from)}T12:00:00Z`).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })}</span></p>
+      {current ? <p className="muted small">Sustituye a «{current.name}» (v{current.version}) desde esa fecha; la anterior sigue guardada.</p> : null}
+      {errors.length ? <ul className="error small">{errors.slice(0, 8).map((e) => <li key={e}>{e}</li>)}</ul> : null}
+      <ul className="list compact">{planSummary(kind, x.content).map((l, i) => <li key={i}>{l}</li>)}</ul>
+    </div>
+  );
 }

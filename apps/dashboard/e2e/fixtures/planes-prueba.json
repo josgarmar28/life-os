@@ -1,0 +1,92 @@
+{
+  "lifeos_plans": [
+    {
+      "kind": "schedule",
+      "name": "Horario de prueba",
+      "valid_from": "2026-01-05",
+      "content": {
+        "default_telework": [3, 5],
+        "blocks": [
+          { "id": "despertar", "days": [1, 2, 3, 4, 5, 6, 7], "start": "06:00", "title": "Despertar", "icon": "⏰", "link": { "kind": "form", "area": "sueno", "form": "manana" } },
+          { "id": "gym", "days": [1, 2, 3, 4, 5, 6, 7], "start": "07:00", "end": "08:00", "title": "Gimnasio", "icon": "🏋️", "link": { "kind": "training" } },
+          { "id": "bus-oficina", "days": [1, 2, 3, 4, 5], "start": "08:15", "end": "09:00", "title": "Autobús al trabajo", "on": "oficina" },
+          { "id": "casa", "days": [3, 5], "start": "08:15", "end": "09:00", "title": "Vuelta a casa", "on": "teletrabajo" },
+          { "id": "comida", "days": [1, 2, 3, 4, 5, 6, 7], "start": "12:00", "end": "12:30", "title": "Comida", "icon": "🍽️", "link": { "kind": "meal", "slot": "comida" } },
+          { "id": "cocina-corta", "days": [3, 4], "start": "12:30", "end": "13:00", "title": "Cocina corta", "on": "teletrabajo", "first_telework_in": [3, 4], "link": { "kind": "cook", "session": "corta" } },
+          { "id": "cena", "days": [1, 2, 3, 4, 5, 6, 7], "start": "19:00", "end": "19:30", "title": "Cena", "icon": "🍽️", "link": { "kind": "meal", "slot": "cena" } },
+          { "id": "compra", "days": [7], "start": "17:00", "end": "17:30", "title": "Revisar la compra", "icon": "🛒", "link": { "kind": "shopping" } },
+          { "id": "cama", "days": [1, 2, 3, 4, 5, 6, 7], "start": "22:00", "title": "Cama", "icon": "🛏️" }
+        ]
+      }
+    },
+    {
+      "kind": "training",
+      "name": "Rutina de prueba",
+      "valid_from": "2026-01-05",
+      "content": {
+        "days": [
+          { "weekday": 1, "name": "Torso", "kind": "pesas", "exercises": [
+            { "key": "press_pecho", "name": "Press de pecho", "machine": "Máquina A", "type": "compuesto", "sets": 2, "reps": [6, 10], "rir": [1, 2], "rest_s": 150, "load": "discos", "muscle": "Pecho" },
+            { "key": "crunch", "name": "Crunch en máquina", "type": "aislamiento", "sets": 2, "reps": [8, 15], "rir": [0, 2], "rest_s": 90, "load": "discos", "muscle": "Abdomen" }
+          ] },
+          { "weekday": 2, "name": "Pierna", "kind": "pesas", "exercises": [
+            { "key": "prensa", "name": "Prensa", "type": "compuesto", "sets": 2, "reps": [8, 12], "rir": [1, 2], "rest_s": 150, "load": "discos", "muscle": "Cuádriceps" }
+          ] },
+          { "weekday": 3, "name": "Cardio y abdomen", "kind": "cardio", "exercises": [
+            { "key": "bici", "name": "Bicicleta", "type": "cardio", "minutes": 30 },
+            { "key": "crunch", "name": "Crunch en máquina", "type": "aislamiento", "sets": 2, "reps": [8, 15], "rir": [0, 2], "rest_s": 90, "load": "discos", "muscle": "Abdomen" },
+            { "key": "movilidad", "name": "Movilidad", "type": "movilidad", "minutes": 15 }
+          ] },
+          { "weekday": 4, "name": "Torso", "kind": "pesas", "exercises": [
+            { "key": "press_pecho", "name": "Press de pecho", "machine": "Máquina A", "type": "compuesto", "sets": 2, "reps": [6, 10], "rir": [1, 2], "rest_s": 150, "load": "discos", "muscle": "Pecho" },
+            { "key": "crunch", "name": "Crunch en máquina", "type": "aislamiento", "sets": 2, "reps": [8, 15], "rir": [0, 2], "rest_s": 90, "load": "discos", "muscle": "Abdomen" }
+          ] },
+          { "weekday": 5, "name": "Pierna", "kind": "pesas", "exercises": [
+            { "key": "prensa", "name": "Prensa", "type": "compuesto", "sets": 2, "reps": [8, 12], "rir": [1, 2], "rest_s": 150, "load": "discos", "muscle": "Cuádriceps" }
+          ] },
+          { "weekday": 6, "name": "Cardio y abdomen", "kind": "cardio", "exercises": [
+            { "key": "bici", "name": "Bicicleta", "type": "cardio", "minutes": 30 },
+            { "key": "crunch", "name": "Crunch en máquina", "type": "aislamiento", "sets": 2, "reps": [8, 15], "rir": [0, 2], "rest_s": 90, "load": "discos", "muscle": "Abdomen" }
+          ] },
+          { "weekday": 7, "name": "Torso", "kind": "pesas", "exercises": [
+            { "key": "press_pecho", "name": "Press de pecho", "machine": "Máquina A", "type": "compuesto", "sets": 2, "reps": [6, 10], "rir": [1, 2], "rest_s": 150, "load": "discos", "muscle": "Pecho" }
+          ] }
+        ]
+      }
+    },
+    {
+      "kind": "meals",
+      "name": "Menú de prueba",
+      "valid_from": "2026-01-05",
+      "content": {
+        "shop": "tienda",
+        "min_order": 50,
+        "cover_days": 7,
+        "buffer_days": 1,
+        "products": [
+          { "key": "pasta", "name": "Pasta", "shop": "tienda", "package": 500, "unit": "g", "price": 1.5, "storage": "despensa" },
+          { "key": "tomate", "name": "Tomate triturado", "shop": "tienda", "package": 400, "unit": "g", "price": 1, "storage": "despensa" },
+          { "key": "yogur", "name": "Yogur", "shop": "tienda", "package": 125, "unit": "g", "package_label": "botes", "price": 0.5, "storage": "nevera" },
+          { "key": "verdura", "name": "Verdura congelada", "shop": "tienda", "package": 750, "unit": "g", "price": 3, "storage": "congelador" },
+          { "key": "proteina", "name": "Proteína en polvo", "shop": "online", "package": 1000, "unit": "g", "price": 25, "storage": "despensa" }
+        ],
+        "recipes": [
+          { "key": "p1", "name": "Pasta con tomate", "ingredients": [{ "product": "pasta", "amount": 100 }, { "product": "tomate", "amount": 100 }, { "product": "verdura", "amount": 100 }] },
+          { "key": "y1", "name": "Yogur con batido", "ingredients": [{ "product": "yogur", "amount": 125 }, { "product": "proteina", "amount": 20 }] }
+        ],
+        "days": [
+          { "weekday": 1, "meals": [{ "slot": "comida", "recipe": "p1" }, { "slot": "cena", "recipe": "p1" }, { "slot": "merienda", "recipe": "y1" }] },
+          { "weekday": 2, "meals": [{ "slot": "comida", "recipe": "p1" }, { "slot": "cena", "recipe": "p1" }, { "slot": "merienda", "recipe": "y1" }] },
+          { "weekday": 3, "meals": [{ "slot": "comida", "recipe": "p1" }, { "slot": "cena", "recipe": "p1" }, { "slot": "merienda", "recipe": "y1" }] },
+          { "weekday": 4, "meals": [{ "slot": "comida", "recipe": "p1" }, { "slot": "cena", "recipe": "p1" }, { "slot": "merienda", "recipe": "y1" }] },
+          { "weekday": 5, "meals": [{ "slot": "comida", "recipe": "p1" }, { "slot": "cena", "recipe": "p1" }, { "slot": "merienda", "recipe": "y1" }] },
+          { "weekday": 6, "meals": [{ "slot": "comida", "recipe": "p1" }, { "slot": "cena", "recipe": "p1" }, { "slot": "merienda", "recipe": "y1" }] },
+          { "weekday": 7, "meals": [{ "slot": "comida", "recipe": "p1" }, { "slot": "cena", "recipe": "p1" }, { "slot": "merienda", "recipe": "y1" }] }
+        ],
+        "cooking": [
+          { "key": "corta", "name": "Cocina corta", "items": [{ "recipe": "p1", "servings": 2 }] }
+        ]
+      }
+    }
+  ]
+}

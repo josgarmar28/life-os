@@ -65,7 +65,8 @@ declare
        {"key":"rir","label":"RIR","type":"integer","min":0,"max":10},
        {"key":"lado","label":"Lado","type":"choice","options":[{"value":"ambos","label":"Ambos"},{"value":"izq","label":"Izq."},{"value":"der","label":"Der."}]},
        {"key":"molestia","label":"Molestia 0-10","type":"integer","min":0,"max":10},
-       {"key":"zona","label":"Zona de la molestia","type":"text"}
+       {"key":"zona","label":"Zona de la molestia","type":"text"},
+       {"key":"linea","label":"Línea del plan","type":"text"}
      ]},
      {"key":"observaciones","label":"Observaciones","type":"text"}
     ]},

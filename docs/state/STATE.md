@@ -1,6 +1,6 @@
 # LIFE OS — Estado del proyecto
 
-Última actualización: 2026-10-18. Este archivo refleja el **estado real**; lo diseñado pero no construido consta como tal.
+Última actualización: 2026-11-22. Este archivo refleja el **estado real**; lo diseñado pero no construido consta como tal.
 
 ## Objetivos
 Sistema personal integrado de salud (entrenamiento, nutrición, sueño), trabajo, calendario y finanzas; máxima automatización compatible con seguridad, bajo coste y control del usuario. Detalle en `docs/spec/`.
@@ -14,6 +14,7 @@ Reside en Pully (Suiza). Gimnasio: Elevate Gym. iPhone. Reloj Amazfit (Zepp). B�
 - **Pendientes por diseño:** D-04 (n8n, fase P3) y D-14 (avisos, se prueba en P2). Ver `docs/adr/0001-decisiones-iniciales.md`.
 - **Aceptadas 18-oct (ADR-0002):** dashboard único con motor de áreas genérico, entrada de datos solo en el dashboard, conector MCP con OAuth de Supabase, plan gratuito con copia cifrada propia (sustituye D-02), arranque en enero sin histórico, "eliminar" = archivar.
 - **19-oct (ADR-0002 D-18 revisada, D-23, D-24):** acceso con contraseña y enlace por correo la primera vez; claves nuevas de Supabase; propuestas de Claude por nombre corto y con campos dentro.
+- **22-nov (ADR-0002 D-25 a D-28, a la espera de su aprobación del PR):** horario, rutina y menú como planes versionados; despensa estimada con el menú y lista de la compra; semana con teletrabajo y días fuera; modo entreno con sugerencia de progresión.
 
 ## Arquitectura vigente
 Ver SPEC-002 §3. Resumen: app de Claude + conector MCP propio (interactivo) y routines/`pg_cron` (programado), ambos sobre el mismo backend en Supabase con permisos por rol.
@@ -28,6 +29,7 @@ Ver SPEC-002 §3. Resumen: app de Claude + conector MCP propio (interactivo) y r
 | Proyecto Supabase | Creado por el usuario (según su mensaje); **no verificado ni conectado**. Sin acceso desde esta sesión |
 | Motor de áreas (`core`, migraciones 2026-10-18 y 2026-10-19) y áreas iniciales | **Escrito y probado en PostgreSQL 16 local** (pruebas 40, 50 y 60). **No aplicado** |
 | Dashboard (`apps/dashboard`, PWA) | **Escrito y probado de principio a fin** en local con Supabase Auth real (Playwright, vista de iPhone: acceso, registros, gestión, sin cobertura, semana). **No desplegado** |
+| Horario, modo entreno y compra (migración 2026-11-22) | **Escritos y probados** (prueba SQL 70, unitarias y de principio a fin). Sus planes reales están en su carpeta privada (`life-os/dashboard/planes/`), no en el repositorio. **No aplicado** |
 | Conector MCP (`supabase/functions/mcp`) | **Escrito y probado de principio a fin**: registro dinámico, OAuth con consentimiento, `client_id` en el token, lectura, registro, revisión semanal y propuesta aprobada. **No desplegado** |
 | Workflows `deploy`, `bootstrap`, `backup` | Escritos; manuales salvo la copia diaria. **Sin ejecutar** (faltan sus secretos) |
 | Integraciones (Zepp, Calendar) | **No existen** |
@@ -42,6 +44,7 @@ Ver SPEC-002 §3. Resumen: app de Claude + conector MCP propio (interactivo) y r
 - [ ] Verificación del esquema contra un Supabase real (ver runbook)
 - [x] Dashboard, motor de áreas, conector y despliegue gratuito escritos (PR #3, fusionado 19-oct)
 - [x] Acceso con contraseña, uso sin cobertura, vista Semana, revisión semanal de Claude y pruebas de principio a fin (PR del 19-oct)
+- [ ] Horario, modo entreno y compra (PR del 22-nov): revisión y aprobación del usuario
 - [ ] Puesta en marcha por el usuario: `docs/runbooks/dashboard-puesta-en-marcha.md`
 - [ ] Arranque de uso en enero de 2027 (sistema vacío)
 - [ ] Más adelante: importación del CSV de Zepp a `health`
