@@ -68,6 +68,16 @@ test('modo entreno: cuestionario, series con descanso y molestia, y la última v
     await page.getByRole('radiogroup', { name: q }).getByRole('radio', { name: '4' }).click();
   }
   await expect(page.getByText('Primera vez: calibra la carga')).toBeVisible();
+  // Modo foco: sin pestañas; el cuestionario contestado queda en una línea.
+  await expect(page.locator('nav.tabs')).toBeHidden();
+  await expect(page.getByText('Antes de empezar: 4 · 4 · 4 · 4 · 4.')).toBeVisible();
+  // Sin repeticiones no se puede marcar la serie: avisa en el momento, no al terminar.
+  await page.getByRole('button', { name: 'Serie 1 hecha' }).click();
+  await expect(page.getByRole('alert')).toContainText('serie 1: pon las repeticiones');
+  // Los botones − / + empiezan en el mínimo del rango y suben de uno en uno.
+  await page.getByRole('button', { name: 'Sumar reps (serie 1)' }).click();
+  await page.getByRole('button', { name: 'Sumar reps (serie 1)' }).click();
+  await expect(page.getByLabel('Serie 1 reps')).not.toHaveValue('');
   await page.getByLabel('Serie 1 kg').fill('40');
   await page.getByLabel('Serie 1 reps').fill('10');
   await page.getByLabel('Serie 1 RIR').fill('2');
@@ -80,6 +90,8 @@ test('modo entreno: cuestionario, series con descanso y molestia, y la última v
   await page.getByLabel('Serie 2 molestia 0-10').fill('3');
   await page.getByLabel('Serie 2 zona de la molestia').fill('hombro dcho.');
   await page.getByRole('button', { name: 'Serie 2 hecha' }).click();
+  await expect(page.getByRole('timer')).toContainText('Descanso');
+  await page.getByRole('button', { name: 'Saltar' }).click();
   // Pasa solo al siguiente ejercicio (crunch).
   await page.getByLabel('Serie 1 reps').fill('12');
   await page.getByRole('button', { name: 'Serie 1 hecha' }).click();
@@ -90,6 +102,7 @@ test('modo entreno: cuestionario, series con descanso y molestia, y la última v
 
   await page.getByRole('button', { name: 'Terminar y guardar' }).click();
   await expect(page).toHaveURL(/\/a\/entreno$/);
+  await expect(page.locator('nav.tabs')).toBeVisible();
   expect(sql(`select string_agg(r->>'linea' || ':' || coalesce(r->>'carga_kg', '-') || 'x' || (r->>'reps') || ':' || coalesce(r->>'zona', ''), ',' order by n)
     from api.entries e join core.form f on f.id = e.form_id, jsonb_array_elements(e.data->'series') with ordinality as t(r, n)
     where f.slug = 'sesion' and e.note like 'Torso%'`)).toBe('press_pecho:40x10:,press_pecho:40x9:hombro dcho.,crunch:-x12:');
@@ -141,7 +154,9 @@ test('otro gimnasio: periodo de viaje, mantenimiento con historial aparte y exce
   await page.getByText('Hacer otra sesión (cambio de día)').click();
   await page.getByRole('button', { name: 'J · Torso (La Zona)' }).click();
   await expect(page.locator('.suggestion').first()).toContainText('Mantén 30 kg');
-  await page.getByLabel('Máquina').first().fill('Otra prensa');
+  await page.getByRole('button', { name: /^Máquina:/ }).first().click();
+  await page.getByRole('radiogroup', { name: 'Máquina de hoy' }).getByRole('radio', { name: 'Otra' }).click();
+  await page.getByLabel('Máquina', { exact: true }).fill('Otra prensa');
   await expect(page.getByText(/La última vez usaste otra máquina \(Máquina de viaje\)/)).toBeVisible();
   page.once('dialog', (d) => void d.accept());
   await page.getByRole('button', { name: 'Descartar' }).click();
