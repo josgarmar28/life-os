@@ -61,6 +61,8 @@ export function explainError(e: unknown): string {
     [/archive the area before/, 'Primero archiva el área'],
     [/not authorized/, 'Sin acceso: esta cuenta no es la del dueño'],
     [/immutable; archive it/, 'La clave y el tipo no se pueden cambiar: archiva el campo y crea otro'],
+    [/gym period overlaps/, 'Ese periodo se solapa con otro: cambia las fechas o borra el otro'],
+    [/gym_period_check/, 'La fecha final no puede ser anterior a la inicial (y como mucho un año)'],
     [/Failed to fetch|NetworkError|Load failed/i, 'Sin conexión'],
   ];
   for (const [re, es] of rules) if (re.test(raw)) return raw.replace(re, es);

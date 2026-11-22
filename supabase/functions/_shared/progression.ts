@@ -1,7 +1,7 @@
 // Doble progresión por línea y lectura del cuestionario previo (entrenamiento/05 §2, §9.1 y §9.4).
 // Es una ayuda en la sala, no una decisión: muestra lo que dice la regla con tus últimos datos.
 import type { Entry } from './model.ts';
-import type { Exercise, LoadKind } from './plans.ts';
+import type { Exercise, LoadKind, TrainingMode } from './plans.ts';
 
 export interface SetLog {
   kg: number | null;
@@ -13,6 +13,8 @@ export interface SetLog {
 export interface Exposure {
   date: string;
   sets: SetLog[];
+  /** Máquina anotada en esa sesión (la de la primera serie), si se anotó. */
+  machine?: string;
 }
 
 export type Readiness = 'normal' | 'baja' | 'minima';
@@ -49,7 +51,11 @@ export function exposuresFor(ex: Pick<Exercise, 'key' | 'name'>, sessions: Entry
     const mine = rows.filter((r) => (r.linea ? r.linea === ex.key : r.ejercicio === ex.name));
     if (!mine.length) continue;
     const n = (v: unknown) => (typeof v === 'number' ? v : null);
-    out.push({ date: s.local_date, sets: mine.map((r) => ({ kg: n(r.carga_kg), reps: n(r.reps), rir: n(r.rir), molestia: n(r.molestia) })) });
+    const machine = mine.map((r) => r.maquina).find((m): m is string => typeof m === 'string' && m.trim() !== '');
+    out.push({
+      date: s.local_date, sets: mine.map((r) => ({ kg: n(r.carga_kg), reps: n(r.reps), rir: n(r.rir), molestia: n(r.molestia) })),
+      ...(machine ? { machine: machine.trim() } : {}),
+    });
     if (out.length >= limit) break;
   }
   return out;
@@ -112,10 +118,22 @@ export function loadStep(kind: LoadKind | undefined, kg: number): { kg: number |
 const round = (x: number) => Math.round(x * 10) / 10;
 const fmt = (x: number) => String(round(x)).replace('.', ',');
 
-export function suggest(ex: Exercise, history: Exposure[], level: Readiness): Suggestion {
+/** ¿La máquina de hoy es otra que la de la última vez en esta línea? (Las cargas no serían comparables.) */
+export function machineChanged(current: string, last: Exposure | undefined): boolean {
+  const norm = (x: string) => x.trim().toLowerCase().replace(/\s+/g, ' ');
+  return !!last?.machine && current.trim() !== '' && norm(current) !== norm(last.machine);
+}
+
+export function suggest(ex: Exercise, history: Exposure[], level: Readiness, mode: TrainingMode = 'progresion'): Suggestion {
   if (!ex.reps || !ex.sets) return { action: 'repetir', kg: null, title: 'Según el plan', why: '' };
   const [lo, hi] = ex.reps;
   const last = history[0];
+  if (!last && mode === 'mantenimiento') {
+    return {
+      action: 'calibrar', kg: null, title: 'Primera vez aquí: calibra con RIR 3',
+      why: `Busca una carga para ${lo}-${hi} reps dejando 3 en reserva y anota la máquina y sus ajustes. Esta sesión no cuenta para escalones ni estancamientos.`,
+    };
+  }
   if (!last) {
     return {
       action: 'calibrar', kg: null, title: 'Primera vez: calibra la carga',
@@ -134,6 +152,12 @@ export function suggest(ex: Exercise, history: Exposure[], level: Readiness): Su
     };
   }
   const lastText = `${last.date.slice(8)}/${last.date.slice(5, 7)}: ${kg !== null ? `${fmt(kg)} kg × ` : ''}${last.sets.map((s) => s.reps ?? '–').join(', ')}`;
+  if (mode === 'mantenimiento') {
+    return {
+      action: 'mantener', kg, title: kg !== null ? `Mantén ${fmt(kg)} kg` : 'Mantén la carga',
+      why: `${lastText}. Gimnasio de mantenimiento: misma carga, RIR ${ex.rir ? `${ex.rir[0]}-${ex.rir[1]}` : '1-2'} y sin fallo; aquí no se sube ni se deciden escalones.`,
+    };
+  }
   const sameLoad = history[1] && loadOf(history[1]) === kg;
   const up = shortcut(last, ex) || (meetsCriterion(last, ex) && sameLoad && meetsCriterion(history[1], ex));
   if (up) {

@@ -55,6 +55,7 @@ declare
      {"key":"pre_motivacion","label":"Antes: motivación","type":"scale","min":1,"max":5},
      {"key":"inicio","label":"Hora de inicio","type":"time"},
      {"key":"fin","label":"Hora de fin","type":"time"},
+     {"key":"gimnasio","label":"Gimnasio","type":"text","help":"Slug del gimnasio (elevate, la_zona…). Lo rellena el modo entreno."},
      {"key":"series","label":"Series","type":"table","columns":[
        {"key":"ejercicio","label":"Ejercicio","type":"text","required":true},
        {"key":"maquina","label":"Máquina","type":"text"},

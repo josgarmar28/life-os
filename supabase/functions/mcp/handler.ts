@@ -8,8 +8,8 @@ import { byOrder } from '../_shared/model.ts';
 import { addDays, formatValue, localDate, summarizeForm } from '../_shared/stats.ts';
 import { summarizeWeek, weekRange } from '../_shared/week.ts';
 import {
-  agendaFor, awayDates, isoWeekday, localTime, nowAndNext, PLAN_LABEL, planFor, planSummary, validatePlan, weekSettings, WEEKDAY_NAME,
-  type MealsPlan, type PlanKind, type PlanRow, type SchedulePlan, type TrainingPlan, type WeekRow,
+  agendaFor, awayDates, gymForDate, gymOf, HOME_GYM, isoWeekday, localTime, nowAndNext, PLAN_LABEL, planFor, planSummary, trainingGyms, validatePlan, weekSettings, WEEKDAY_NAME,
+  type GymPeriod, type MealsPlan, type PlanKind, type PlanRow, type SchedulePlan, type TrainingPlan, type WeekRow,
 } from '../_shared/plans.ts';
 import { estimateStock, formatQty, shoppingList, type StockMove } from '../_shared/shopping.ts';
 import { weekStart } from '../_shared/stats.ts';
@@ -39,6 +39,7 @@ export interface Api {
   proposals(q: { status?: string; limit: number }): Promise<Proposal[]>;
   plans(): Promise<PlanRow[]>;
   weeks(): Promise<WeekRow[]>;
+  gymPeriods(): Promise<GymPeriod[]>;
   stockMoves(): Promise<{ product: string; kind: StockMove['kind']; qty: number; occurred_at: string }[]>;
   orders(): Promise<OrderRow[]>;
   rpc<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T>;
@@ -261,7 +262,7 @@ export const TOOLS: Tool[] = [
   {
     name: 'lifeos_agenda',
     title: 'Qué toca un día',
-    description: 'Agenda de un día según su horario, rutina y menú: bloques con hora, sesión de entreno con ejercicios, comidas con receta, cocina por lotes y entregas, teniendo en cuenta sus días de teletrabajo y fuera de casa de esa semana. Indica qué toca ahora y después si es hoy.',
+    description: 'Agenda de un día según su horario, rutina y menú: bloques con hora, sesión de entreno con ejercicios, comidas con receta, cocina por lotes y entregas, teniendo en cuenta sus días de teletrabajo y fuera de casa de esa semana. La sesión de entreno es la de la rutina del gimnasio de ese día ("gym": el de un periodo en otro gimnasio o, si no, el de casa). Indica qué toca ahora y después si es hoy.',
     inputSchema: {
       type: 'object',
       properties: { date: { type: 'string', description: 'YYYY-MM-DD (por defecto, hoy en su zona horaria).' } },
@@ -273,9 +274,10 @@ export const TOOLS: Tool[] = [
       const today = localDate(now, tz);
       const date = str(args.date, 'date') ?? today;
       if (!isDate(date)) throw new ToolError('"date" debe ser YYYY-MM-DD.');
-      const [plans, weeks, orders] = await Promise.all([api.plans(), api.weeks(), api.orders()]);
+      const [plans, weeks, orders, periods] = await Promise.all([api.plans(), api.weeks(), api.orders(), api.gymPeriods()]);
+      const gym = gymForDate(periods, date);
       const schedule = planFor<SchedulePlan>(plans, 'schedule', date);
-      const training = planFor<TrainingPlan>(plans, 'training', date);
+      const training = planFor<TrainingPlan>(plans, 'training', date, gym) ?? (gym !== HOME_GYM ? planFor<TrainingPlan>(plans, 'training', date) : null);
       const meals = planFor<MealsPlan>(plans, 'meals', date);
       if (!schedule && !training && !meals) return { date, note: 'Aún no hay planes importados en el dashboard.' };
       const a = agendaFor({ date, schedule: schedule?.content ?? null, training: training?.content ?? null, meals: meals?.content ?? null, weeks, deliveries: orders });
@@ -283,7 +285,7 @@ export const TOOLS: Tool[] = [
       const preview = [schedule, training, meals].filter((x) => x?.preview).map((x) => `${PLAN_LABEL[x!.row.kind]} empieza el ${x!.row.valid_from}`);
       return {
         date, weekday: WEEKDAY_NAME[isoWeekday(date)], timezone: tz,
-        telework: a.telework, away: a.away,
+        telework: a.telework, away: a.away, gym,
         ...(preview.length ? { preview_only: preview } : {}),
         ...(nn ? { now: nn.now?.title ?? null, next: nn.next ? `${nn.next.start} ${nn.next.title}` : null } : {}),
         items: a.items.map((i) => ({
@@ -299,12 +301,13 @@ export const TOOLS: Tool[] = [
   {
     name: 'lifeos_plan',
     title: 'Leer un plan',
-    description: 'Devuelve el plan vigente (o el próximo, si aún no ha empezado) de un tipo: schedule (horario por bloques), training (rutina por día con ejercicios, series, reps, RIR, descanso y tipo de carga) o meals (productos con envase y precio, recetas por ración, menú semanal, sesiones de cocina y parámetros del pedido). Incluye el contenido exacto para proponer una versión nueva con lifeos_propose_change (plan.save), y la lista de versiones.',
+    description: 'Devuelve el plan vigente (o el próximo, si aún no ha empezado) de un tipo: schedule (horario por bloques), training (rutina por día con ejercicios, series, reps, RIR, descanso y tipo de carga) o meals (productos con envase y precio, recetas por ración, menú semanal, sesiones de cocina y parámetros del pedido). Incluye el contenido exacto para proponer una versión nueva con lifeos_propose_change (plan.save), y la lista de versiones. Las rutinas van por gimnasio (content.gym; sin él, el de casa "elevate"): "gyms" lista cada gimnasio con su modo (progresion o mantenimiento) y "gym" elige cuál devolver. Cada sesión de pesas guarda "gimnasio"; las líneas de cada gimnasio tienen claves propias, así que su historial va aparte, pero sus series cuentan para el volumen semanal de cada músculo. Las sesiones en modo mantenimiento no deciden escalones ni estancamientos.',
     inputSchema: {
       type: 'object',
       properties: {
         kind: { type: 'string', enum: ['schedule', 'training', 'meals'] },
         date: { type: 'string', description: 'Fecha a la que se refiere, YYYY-MM-DD (por defecto, hoy).' },
+        gym: { type: 'string', description: 'Solo training: slug del gimnasio (por defecto, el de casa, "elevate").' },
       },
       required: ['kind'],
       additionalProperties: false,
@@ -315,12 +318,18 @@ export const TOOLS: Tool[] = [
       if (!PLAN_LABEL[kind]) throw new ToolError('"kind" debe ser schedule, training o meals.');
       const date = str(args.date, 'date') ?? localDate(now, await api.timezone());
       if (!isDate(date)) throw new ToolError('"date" debe ser YYYY-MM-DD.');
-      const plans = await api.plans();
-      const cur = planFor<unknown>(plans, kind, date);
+      const gym = str(args.gym, 'gym') ?? HOME_GYM;
+      const [plans, periods] = await Promise.all([api.plans(), kind === 'training' ? api.gymPeriods() : Promise.resolve([] as GymPeriod[])]);
+      const cur = planFor<unknown>(plans, kind, date, gym);
       return {
         kind, label: PLAN_LABEL[kind],
+        ...(kind === 'training' ? {
+          gym,
+          gyms: trainingGyms(plans, date).map((g) => ({ gym: g.gym, label: g.label, mode: g.mode, version: g.plan.row.version, valid_from: g.plan.row.valid_from, preview: g.plan.preview })),
+          periods: periods.filter((p) => p.date_to >= date).map((p) => ({ id: p.id, gym: p.gym, from: p.date_from, to: p.date_to, note: p.note || undefined })),
+        } : {}),
         versions: plans.filter((p) => p.kind === kind).sort((a, b) => b.version - a.version)
-          .map((p) => ({ version: p.version, name: p.name, valid_from: p.valid_from, status: p.status, source: p.source })),
+          .map((p) => ({ version: p.version, name: p.name, valid_from: p.valid_from, status: p.status, source: p.source, ...(kind === 'training' ? { gym: gymOf(p.content) } : {}) })),
         current: cur ? { version: cur.row.version, name: cur.row.name, valid_from: cur.row.valid_from, preview: cur.preview, summary: planSummary(kind, cur.content), content: cur.content } : null,
       };
     },
@@ -427,6 +436,44 @@ export const TOOLS: Tool[] = [
       await api.rpc('save_week', { p_week_start: ws, p_telework: telework, p_away: away, p_note: str(args.note, 'note') ?? '' });
       const schedule = planFor<SchedulePlan>(await api.plans(), 'schedule', ws);
       return { week_start: ws, ...weekSettings([{ week_start: ws, telework: telework as WeekRow['telework'], away: away as WeekRow['away'], note: '' }], schedule?.content ?? null, ws) };
+    },
+  },
+  {
+    name: 'lifeos_set_gym_period',
+    title: 'Periodo en otro gimnasio',
+    description: 'Registra, cambia o borra un periodo en otro gimnasio (p. ej. "estoy en España del 22 al 25": gym "la_zona"), cuando él te lo dice. Dentro del periodo, cada día usa la sesión de la rutina de ese gimnasio para su día de la semana; fuera, la del gimnasio de casa. Los periodos no se solapan. Para borrar, pasa solo "delete_id" (los ids salen en lifeos_plan kind training).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        gym: { type: 'string', description: 'Slug del gimnasio (el "gym" de su rutina, p. ej. "la_zona").' },
+        from: { type: 'string', description: 'Primer día, YYYY-MM-DD.' },
+        to: { type: 'string', description: 'Último día (incluido), YYYY-MM-DD.' },
+        note: { type: 'string' },
+        id: { type: 'string', description: 'Para cambiar un periodo existente.' },
+        delete_id: { type: 'string', description: 'Para borrar un periodo.' },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    async run(args, { api, now }) {
+      const del = str(args.delete_id, 'delete_id');
+      if (del) {
+        await api.rpc('delete_gym_period', { p_id: del });
+        return { deleted: del };
+      }
+      const gym = str(args.gym, 'gym', true)!;
+      const from = str(args.from, 'from', true)!;
+      const to = str(args.to, 'to', true)!;
+      if (!isDate(from) || !isDate(to)) throw new ToolError('"from" y "to" deben ser YYYY-MM-DD.');
+      if (to < from) throw new ToolError('"to" no puede ser anterior a "from".');
+      const plans = await api.plans();
+      const gyms = trainingGyms(plans, from);
+      if (!gyms.some((g) => g.gym === gym)) {
+        throw new ToolError(`No hay rutina para el gimnasio "${gym}". Gimnasios con rutina: ${gyms.map((g) => g.gym).join(', ') || 'ninguno'}.`);
+      }
+      const id = await api.rpc<string>('save_gym_period', { p_gym: gym, p_from: from, p_to: to, p_note: str(args.note, 'note') ?? '', p_id: str(args.id, 'id') ?? null });
+      const today = localDate(now, await api.timezone());
+      return { id, gym, from, to, note: 'Esos días el entreno y la agenda usan la rutina de ese gimnasio.', ...(to < today ? { warning: 'El periodo ya ha pasado.' } : {}) };
     },
   },
   {

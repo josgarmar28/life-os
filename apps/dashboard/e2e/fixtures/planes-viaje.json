@@ -1,0 +1,238 @@
+{
+  "kind": "training",
+  "name": "Rutina de viaje de prueba",
+  "valid_from": "2026-01-05",
+  "content": {
+    "days": [
+      {
+        "weekday": 1,
+        "name": "Torso (La Zona)",
+        "kind": "pesas",
+        "exercises": [
+          {
+            "key": "es_press_pecho",
+            "name": "Press de pecho",
+            "machine": "Máquina de viaje",
+            "type": "compuesto",
+            "sets": 2,
+            "reps": [
+              6,
+              10
+            ],
+            "rir": [
+              1,
+              2
+            ],
+            "rest_s": 150,
+            "load": "discos",
+            "muscle": "Pecho"
+          },
+          {
+            "key": "es_crunch",
+            "name": "Crunch en máquina",
+            "type": "aislamiento",
+            "sets": 2,
+            "reps": [
+              8,
+              15
+            ],
+            "rir": [
+              0,
+              2
+            ],
+            "rest_s": 90,
+            "load": "discos",
+            "muscle": "Abdomen"
+          }
+        ]
+      },
+      {
+        "weekday": 2,
+        "name": "Pierna (La Zona)",
+        "kind": "pesas",
+        "exercises": [
+          {
+            "key": "es_prensa",
+            "name": "Prensa",
+            "type": "compuesto",
+            "sets": 2,
+            "reps": [
+              8,
+              12
+            ],
+            "rir": [
+              1,
+              2
+            ],
+            "rest_s": 150,
+            "load": "discos",
+            "muscle": "Cuádriceps"
+          }
+        ]
+      },
+      {
+        "weekday": 3,
+        "name": "Cardio y abdomen (La Zona)",
+        "kind": "cardio",
+        "exercises": [
+          {
+            "key": "es_bici",
+            "name": "Bicicleta",
+            "type": "cardio",
+            "minutes": 30
+          },
+          {
+            "key": "es_crunch",
+            "name": "Crunch en máquina",
+            "type": "aislamiento",
+            "sets": 2,
+            "reps": [
+              8,
+              15
+            ],
+            "rir": [
+              0,
+              2
+            ],
+            "rest_s": 90,
+            "load": "discos",
+            "muscle": "Abdomen"
+          },
+          {
+            "key": "es_movilidad",
+            "name": "Movilidad",
+            "type": "movilidad",
+            "minutes": 15
+          }
+        ]
+      },
+      {
+        "weekday": 4,
+        "name": "Torso (La Zona)",
+        "kind": "pesas",
+        "exercises": [
+          {
+            "key": "es_press_pecho",
+            "name": "Press de pecho",
+            "machine": "Máquina de viaje",
+            "type": "compuesto",
+            "sets": 2,
+            "reps": [
+              6,
+              10
+            ],
+            "rir": [
+              1,
+              2
+            ],
+            "rest_s": 150,
+            "load": "discos",
+            "muscle": "Pecho"
+          },
+          {
+            "key": "es_crunch",
+            "name": "Crunch en máquina",
+            "type": "aislamiento",
+            "sets": 2,
+            "reps": [
+              8,
+              15
+            ],
+            "rir": [
+              0,
+              2
+            ],
+            "rest_s": 90,
+            "load": "discos",
+            "muscle": "Abdomen"
+          }
+        ]
+      },
+      {
+        "weekday": 5,
+        "name": "Pierna (La Zona)",
+        "kind": "pesas",
+        "exercises": [
+          {
+            "key": "es_prensa",
+            "name": "Prensa",
+            "type": "compuesto",
+            "sets": 2,
+            "reps": [
+              8,
+              12
+            ],
+            "rir": [
+              1,
+              2
+            ],
+            "rest_s": 150,
+            "load": "discos",
+            "muscle": "Cuádriceps"
+          }
+        ]
+      },
+      {
+        "weekday": 6,
+        "name": "Cardio y abdomen (La Zona)",
+        "kind": "cardio",
+        "exercises": [
+          {
+            "key": "es_bici",
+            "name": "Bicicleta",
+            "type": "cardio",
+            "minutes": 30
+          },
+          {
+            "key": "es_crunch",
+            "name": "Crunch en máquina",
+            "type": "aislamiento",
+            "sets": 2,
+            "reps": [
+              8,
+              15
+            ],
+            "rir": [
+              0,
+              2
+            ],
+            "rest_s": 90,
+            "load": "discos",
+            "muscle": "Abdomen"
+          }
+        ]
+      },
+      {
+        "weekday": 7,
+        "name": "Torso (La Zona)",
+        "kind": "pesas",
+        "exercises": [
+          {
+            "key": "es_press_pecho",
+            "name": "Press de pecho",
+            "machine": "Máquina de viaje",
+            "type": "compuesto",
+            "sets": 2,
+            "reps": [
+              6,
+              10
+            ],
+            "rir": [
+              1,
+              2
+            ],
+            "rest_s": 150,
+            "load": "discos",
+            "muscle": "Pecho"
+          }
+        ]
+      }
+    ],
+    "gym": "la_zona",
+    "gym_name": "La Zona",
+    "mode": "mantenimiento",
+    "rules": [
+      "Plan sintético de prueba para un segundo gimnasio."
+    ]
+  }
+}

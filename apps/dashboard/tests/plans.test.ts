@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import type { Entry } from '@shared/model.ts';
 import {
-  agendaFor, isoWeekday, nowAndNext, parsePlanFile, planFor, validatePlan,
+  agendaFor, gymForDate, gymOf, isoWeekday, nowAndNext, parsePlanFile, planFor, planSummary, trainingGyms, validatePlan,
   type MealsPlan, type PlanRow, type SchedulePlan, type TrainingPlan,
 } from '@shared/plans.ts';
-import { exposuresFor, readiness, setsToday, suggest, type Exposure } from '@shared/progression.ts';
+import { exposuresFor, machineChanged, readiness, setsToday, suggest, type Exposure } from '@shared/progression.ts';
 import { estimateStock, shoppingList, useBetween, type StockMove } from '@shared/shopping.ts';
 
 const file = JSON.parse(readFileSync(new URL('../e2e/fixtures/planes-prueba.json', import.meta.url), 'utf8'));
@@ -42,6 +42,37 @@ describe('qué plan rige', () => {
     expect(planFor(rows, 'training', '2027-03-01')).toMatchObject({ row: { version: 2 }, preview: false });
     expect(planFor(rows, 'training', '2026-12-01')).toMatchObject({ row: { version: 1 }, preview: true });
     expect(planFor(rows, 'meals', '2027-01-20')).toBeNull();
+  });
+});
+
+describe('varios gimnasios', () => {
+  const trow = (version: number, valid_from: string, content: object): PlanRow =>
+    ({ id: String(version), kind: 'training', version, name: `v${version}`, valid_from, content, status: 'active', source: 'dashboard', created_at: '' });
+  const viaje: TrainingPlan = { ...training, gym: 'la_zona', gym_name: 'La Zona', mode: 'mantenimiento',
+    days: training.days.map((d) => ({ ...d, name: `${d.name} (viaje)`, exercises: d.exercises.map((x) => ({ ...x, key: `es_${x.key}` })) })) };
+  const rows = [trow(1, '2027-01-11', training), trow(2, '2027-01-11', viaje)];
+
+  it('cada gimnasio tiene su plan vigente: el de viaje no sustituye al de casa', () => {
+    expect(gymOf(training)).toBe('elevate');
+    expect(planFor(rows, 'training', '2027-01-20')).toMatchObject({ row: { version: 1 } });
+    expect(planFor(rows, 'training', '2027-01-20', 'la_zona')).toMatchObject({ row: { version: 2 } });
+    expect(planFor(rows, 'training', '2027-01-20', 'otro')).toBeNull();
+    expect(trainingGyms(rows, '2027-01-20').map((g) => [g.gym, g.label, g.mode])).toEqual([['elevate', 'Elevate', 'progresion'], ['la_zona', 'La Zona', 'mantenimiento']]);
+  });
+
+  it('valida gym y mode, y el resumen los muestra', () => {
+    expect(validatePlan('training', viaje)).toEqual([]);
+    expect(validatePlan('training', { ...viaje, gym: 'La Zona', mode: 'suave' })).toEqual(['gym: slug en minúsculas_con_guiones_bajos', 'mode: progresion o mantenimiento']);
+    expect(planSummary('training', viaje)[0]).toBe('Gimnasio: La Zona · mantenimiento (sin subir cargas ni escalones)');
+    expect(planSummary('training', training)[0]).not.toContain('Gimnasio');
+  });
+
+  it('el gimnasio de un día sale de los periodos', () => {
+    const periods = [{ id: 'p', gym: 'la_zona', date_from: '2027-01-22', date_to: '2027-01-25', note: '' }];
+    expect(gymForDate(periods, '2027-01-21')).toBe('elevate');
+    expect(gymForDate(periods, '2027-01-22')).toBe('la_zona');
+    expect(gymForDate(periods, '2027-01-25')).toBe('la_zona');
+    expect(gymForDate(periods, '2027-01-26')).toBe('elevate');
   });
 });
 
@@ -114,6 +145,20 @@ describe('progresión', () => {
     expect(suggest(press, [exp('2027-01-18', 40, [10, 10], 2, 6)], 'normal').action).toBe('parar');
   });
 
+  it('mantenimiento: repite la última carga sin subir; primera vez, calibra con RIR 3', () => {
+    expect(suggest(press, [exp('2027-01-18', 40, [12, 12])], 'normal', 'mantenimiento')).toMatchObject({ action: 'mantener', kg: 40, title: 'Mantén 40 kg' });
+    expect(suggest(press, [], 'normal', 'mantenimiento')).toMatchObject({ action: 'calibrar', title: 'Primera vez aquí: calibra con RIR 3' });
+    expect(suggest(press, [exp('2027-01-18', 40, [10, 10], 2, 6)], 'normal', 'mantenimiento').action).toBe('parar');
+  });
+
+  it('avisa si la máquina no es la de la última vez', () => {
+    const last: Exposure = { date: '2027-01-18', sets: [], machine: 'Prensa Hammer' };
+    expect(machineChanged('prensa  hammer', last)).toBe(false);
+    expect(machineChanged('Prensa de 45°', last)).toBe(true);
+    expect(machineChanged('', last)).toBe(false);
+    expect(machineChanged('Prensa de 45°', { date: '2027-01-18', sets: [] })).toBe(false);
+  });
+
   it('lectura del cuestionario y series de la sesión mínima', () => {
     expect(readiness([4, 4, 4, 4, 4], 4).level).toBe('normal');
     expect(readiness([2, 2, 4, 4, 4], 4).level).toBe('baja');
@@ -132,10 +177,10 @@ describe('progresión', () => {
       data: { series }, note: '', source: 'dashboard', quality: 'manual', supersedes_id: null, actor: 'owner', created_at: '' });
     const sessions = [
       e('2027-01-11', [{ ejercicio: 'Press de pecho', carga_kg: 38, reps: 9, rir: 2 }]),
-      e('2027-01-14', [{ ejercicio: 'Otro nombre', linea: 'press_pecho', carga_kg: 40, reps: 10, rir: 2, molestia: 1 }, { ejercicio: 'Crunch', linea: 'crunch', reps: 12 }]),
+      e('2027-01-14', [{ ejercicio: 'Otro nombre', linea: 'press_pecho', maquina: ' Panatta ', carga_kg: 40, reps: 10, rir: 2, molestia: 1 }, { ejercicio: 'Crunch', linea: 'crunch', reps: 12 }]),
     ];
     expect(exposuresFor(press, sessions)).toEqual([
-      { date: '2027-01-14', sets: [{ kg: 40, reps: 10, rir: 2, molestia: 1 }] },
+      { date: '2027-01-14', sets: [{ kg: 40, reps: 10, rir: 2, molestia: 1 }], machine: 'Panatta' },
       { date: '2027-01-11', sets: [{ kg: 38, reps: 9, rir: 2, molestia: null }] },
     ]);
   });
