@@ -1,0 +1,174 @@
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import type { Entry } from '@shared/model.ts';
+import {
+  agendaFor, isoWeekday, nowAndNext, parsePlanFile, planFor, validatePlan,
+  type MealsPlan, type PlanRow, type SchedulePlan, type TrainingPlan,
+} from '@shared/plans.ts';
+import { exposuresFor, readiness, setsToday, suggest, type Exposure } from '@shared/progression.ts';
+import { estimateStock, shoppingList, useBetween, type StockMove } from '@shared/shopping.ts';
+
+const file = JSON.parse(readFileSync(new URL('../e2e/fixtures/planes-prueba.json', import.meta.url), 'utf8'));
+const parsed = parsePlanFile(file);
+const content = <T,>(kind: string) => parsed.plans.find((p) => p.kind === kind)!.content as T;
+const schedule = content<SchedulePlan>('schedule');
+const training = content<TrainingPlan>('training');
+const meals = content<MealsPlan>('meals');
+
+describe('validación de planes', () => {
+  it('el archivo de prueba es válido', () => {
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.plans.map((p) => p.kind)).toEqual(['schedule', 'training', 'meals']);
+  });
+
+  it('señala referencias rotas y formatos', () => {
+    expect(validatePlan('meals', { ...meals, days: [{ weekday: 1, meals: [{ slot: 'cena', recipe: 'nada' }] }] }))
+      .toContain('Lunes, cena: receta "nada" no existe');
+    expect(validatePlan('schedule', { blocks: [{ id: 'a', days: [8], start: '25:00', title: 'X' }] }))
+      .toEqual(['Bloque 1 (X): días 1-7', 'Bloque 1 (X): hora de inicio HH:MM']);
+    expect(validatePlan('training', { days: [{ weekday: 1, name: 'A', kind: 'pesas', exercises: [{ key: 'Mal', name: 'x', type: 'compuesto', sets: 2, reps: [10, 6] }] }] }))
+      .toEqual(['Lunes, ejercicio 1: key en minúsculas_con_guiones_bajos', 'Lunes, ejercicio 1 (x): reps [mín, máx]']);
+    expect(parsePlanFile({ kind: 'otro' }).errors).toEqual(['kind debe ser schedule, training o meals']);
+  });
+});
+
+describe('qué plan rige', () => {
+  const row = (version: number, valid_from: string, status: 'active' | 'archived' = 'active'): PlanRow =>
+    ({ id: String(version), kind: 'training', version, name: `v${version}`, valid_from, content: {}, status, source: 'dashboard', created_at: '' });
+  const rows = [row(1, '2027-01-11'), row(2, '2027-02-01'), row(3, '2027-02-01', 'archived')];
+
+  it('vigente, vista previa y nada', () => {
+    expect(planFor(rows, 'training', '2027-01-20')).toMatchObject({ row: { version: 1 }, preview: false });
+    expect(planFor(rows, 'training', '2027-03-01')).toMatchObject({ row: { version: 2 }, preview: false });
+    expect(planFor(rows, 'training', '2026-12-01')).toMatchObject({ row: { version: 1 }, preview: true });
+    expect(planFor(rows, 'meals', '2027-01-20')).toBeNull();
+  });
+});
+
+describe('agenda del día', () => {
+  const base = { schedule, training, meals, weeks: [] };
+
+  it('lunes de oficina: bus, comida con su receta, entreno del día', () => {
+    expect(isoWeekday('2027-01-11')).toBe(1);
+    const a = agendaFor({ ...base, date: '2027-01-11' });
+    expect(a.telework).toBe(false);
+    expect(a.items.map((i) => i.id)).toEqual(['despertar', 'gym', 'bus-oficina', 'comida', 'cena', 'cama']);
+    expect(a.items[1].training?.name).toBe('Torso');
+    expect(a.items[3].meal?.recipe.name).toBe('Pasta con tomate');
+  });
+
+  it('teletrabajo elegido para la semana: la cocina corta va el primero de X/J', () => {
+    const weeks = [{ week_start: '2027-01-11', telework: [4, 5], away: [], note: '' }];
+    const x = agendaFor({ ...base, weeks, date: '2027-01-13' });
+    const j = agendaFor({ ...base, weeks, date: '2027-01-14' });
+    expect(x.items.some((i) => i.id === 'cocina-corta')).toBe(false);
+    expect(j.items.find((i) => i.id === 'cocina-corta')?.cook?.recipes[0]).toMatchObject({ servings: 2, recipe: { key: 'p1' } });
+    expect(j.items.some((i) => i.id === 'casa')).toBe(false);
+  });
+
+  it('el pedido aparece el día de la entrega', () => {
+    const a = agendaFor({ ...base, date: '2027-01-14', deliveries: [{ id: 'o1', delivery_date: '2027-01-14', items: [1, 2], status: 'ordered' }] });
+    expect(a.items.find((i) => i.delivery)?.delivery).toEqual({ orderId: 'o1', items: 2 });
+  });
+
+  it('ahora y después', () => {
+    const { items } = agendaFor({ ...base, date: '2027-01-11' });
+    expect(nowAndNext(items, '07:30')).toMatchObject({ now: { id: 'gym' }, next: { id: 'bus-oficina' } });
+    expect(nowAndNext(items, '10:00')).toMatchObject({ now: { id: 'despertar' }, next: { id: 'comida' } });
+    expect(nowAndNext(items, '05:00')).toMatchObject({ now: null, next: { id: 'despertar' } });
+  });
+});
+
+describe('progresión', () => {
+  const press = training.days[0].exercises[0];
+  const exp = (date: string, kg: number, reps: number[], rir = 2, molestia = 0): Exposure =>
+    ({ date, sets: reps.map((r) => ({ kg, reps: r, rir, molestia })) });
+
+  it('primera vez: calibrar', () => {
+    expect(suggest(press, [], 'normal').action).toBe('calibrar');
+  });
+
+  it('dos exposiciones en el techo con el RIR: sube con el escalón de discos', () => {
+    const s = suggest(press, [exp('2027-01-18', 40, [10, 10]), exp('2027-01-14', 40, [10, 10])], 'normal');
+    expect(s).toMatchObject({ action: 'subir', kg: 41.5 });
+  });
+
+  it('una sola vez en el techo: repite; atajo con +2 reps sobre el techo: sube', () => {
+    expect(suggest(press, [exp('2027-01-18', 40, [10, 10]), exp('2027-01-14', 40, [10, 9])], 'normal').action).toBe('repetir');
+    expect(suggest(press, [exp('2027-01-18', 40, [12, 12])], 'normal').action).toBe('subir');
+  });
+
+  it('objetivo: +1 rep en la primera serie que no llegó', () => {
+    const s = suggest(press, [exp('2027-01-18', 40, [10, 8])], 'normal');
+    expect(s.why).toContain('+1 rep en la serie 2 (9)');
+  });
+
+  it('RIR por debajo del objetivo no cuenta para subir', () => {
+    expect(suggest(press, [exp('2027-01-18', 40, [10, 10], 0), exp('2027-01-14', 40, [10, 10], 0)], 'normal').action).toBe('repetir');
+  });
+
+  it('cuestionario bajo: no sube; molestia ámbar y roja', () => {
+    const up = [exp('2027-01-18', 40, [12, 12])];
+    expect(suggest(press, up, 'baja').action).toBe('mantener');
+    expect(suggest(press, [exp('2027-01-18', 40, [10, 10], 2, 3)], 'normal')).toMatchObject({ action: 'revisar', kg: 34 });
+    expect(suggest(press, [exp('2027-01-18', 40, [10, 10], 2, 6)], 'normal').action).toBe('parar');
+  });
+
+  it('lectura del cuestionario y series de la sesión mínima', () => {
+    expect(readiness([4, 4, 4, 4, 4], 4).level).toBe('normal');
+    expect(readiness([2, 2, 4, 4, 4], 4).level).toBe('baja');
+    expect(readiness([2, 2, 2, 4, 4], 4).level).toBe('minima');
+    expect(readiness([3, 3, 1, 4, 4], 1).level).toBe('minima');
+    expect(readiness([null, 3, 3, 3, 3], 3).level).toBe('normal');
+    const crunch = training.days[0].exercises[1];
+    expect(setsToday({ ...press, sets: 3 }, 'minima', false)).toBe(2);
+    expect(setsToday(press, 'minima', true)).toBe(2);
+    expect(setsToday(press, 'minima', false)).toBe(1);
+    expect(setsToday(crunch, 'minima', false)).toBe(2);
+  });
+
+  it('lee las exposiciones por línea (o por nombre en registros antiguos)', () => {
+    const e = (date: string, series: unknown[]): Entry => ({ id: date, form_id: 'f', area_id: 'a', occurred_at: `${date}T07:00:00Z`, local_date: date,
+      data: { series }, note: '', source: 'dashboard', quality: 'manual', supersedes_id: null, actor: 'owner', created_at: '' });
+    const sessions = [
+      e('2027-01-11', [{ ejercicio: 'Press de pecho', carga_kg: 38, reps: 9, rir: 2 }]),
+      e('2027-01-14', [{ ejercicio: 'Otro nombre', linea: 'press_pecho', carga_kg: 40, reps: 10, rir: 2, molestia: 1 }, { ejercicio: 'Crunch', linea: 'crunch', reps: 12 }]),
+    ];
+    expect(exposuresFor(press, sessions)).toEqual([
+      { date: '2027-01-14', sets: [{ kg: 40, reps: 10, rir: 2, molestia: 1 }] },
+      { date: '2027-01-11', sets: [{ kg: 38, reps: 9, rir: 2, molestia: null }] },
+    ]);
+  });
+});
+
+describe('despensa y compra', () => {
+  const move = (product: string, kind: StockMove['kind'], qty: number, local_date: string): StockMove =>
+    ({ product, kind, qty, local_date, occurred_at: `${local_date}T18:00:00Z` });
+
+  it('consumo del menú por días, saltando los días fuera', () => {
+    expect(useBetween(meals, '2027-01-11', '2027-01-13').get('pasta')).toBe(600);
+    expect(useBetween(meals, '2027-01-11', '2027-01-13', new Set(['2027-01-12'])).get('pasta')).toBe(400);
+  });
+
+  it('stock estimado: recuento + compras − consumo desde el día siguiente', () => {
+    const stock = estimateStock(meals, [move('pasta', 'count', 1000, '2027-01-10'), move('pasta', 'purchase', 500, '2027-01-11')], '2027-01-12');
+    const pasta = stock.find((s) => s.product.key === 'pasta')!;
+    expect(pasta).toMatchObject({ qty: 1500 - 400, counted: '2027-01-10', perDay: 200 });
+    expect(pasta.daysLeft).toBeCloseTo(5.5);
+    expect(stock.find((s) => s.product.key === 'tomate')).toMatchObject({ qty: null, counted: null });
+  });
+
+  it('lista: lo que falta hasta el siguiente pedido, en envases, y la otra tienda aparte', () => {
+    const stock = estimateStock(meals, [move('pasta', 'count', 1000, '2027-01-11'), move('yogur', 'count', 1000, '2027-01-11')], '2027-01-11');
+    // Entrega el jueves 14: cubre 7 días + 1 de margen (14-21). Martes y miércoles se gastan 400 g de pasta.
+    const list = shoppingList(meals, stock, '2027-01-11', '2027-01-14');
+    const by = (k: string) => list.lines.find((l) => l.product.key === k)!;
+    expect(list.until).toBe('2027-01-21');
+    expect(by('pasta')).toMatchObject({ need: 1600, atDelivery: 600, missing: 1000, packages: 2, cost: 3 });
+    expect(by('yogur')).toMatchObject({ atDelivery: 750, missing: 250, packages: 2 });
+    expect(by('tomate')).toMatchObject({ unknown: true, packages: 4 });
+    expect(list.other.map((l) => l.product.key)).toEqual(['proteina']);
+    expect(by('verdura')).toMatchObject({ unknown: true, packages: 3 });
+    expect(list.total).toBe(3 + 1 + 4 + 9);
+  });
+});

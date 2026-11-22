@@ -71,6 +71,11 @@ Si el run de `bootstrap` terminó sin el aviso amarillo "No se pudo activar el s
 
 Si un día olvidas la contraseña, repite los pasos 1 a 3.
 
+### 8b. Cargar tus planes (horario, rutina y menú)
+1. Descarga a tu iPhone (o al ordenador) el archivo `planes-enero-2027.json` de tu carpeta privada del proyecto (`life-os/dashboard/planes/`). **No está en el repositorio**: son tus datos.
+2. Dashboard → **Más → Ajustes → Planes → Importar archivo de planes**. Revisa el resumen (días, ejercicios, series, lotes de cocina) y pulsa *Guardar 3 planes*.
+3. Cada plan rige desde su fecha (menú desde el 10-ene, horario y rutina desde el 11-ene); antes verás una vista previa. Para cambiarlos, pídeselo a Claude: te llega como propuesta y se aplica solo si la apruebas. Las versiones anteriores se guardan.
+
 ## 9. Añadir el conector a Claude
 claude.ai (web) → Settings → Connectors → **Add custom connector**:
 - Nombre: `LIFE OS`
@@ -78,7 +83,7 @@ claude.ai (web) → Settings → Connectors → **Add custom connector**:
 
 Pulsa *Connect*: se abre tu dashboard, inicias sesión y apruebas el acceso. Si la página avisa de que la dirección de vuelta no es de claude.ai, no apruebes. Una vez añadido en la web, aparece también en la app del iPhone.
 
-Qué puede hacer Claude con él: leer tus áreas y registros, añadir o corregir registros cuando se lo pidas (quedan marcados como "Claude") y **proponer** cambios de estructura, que solo se aplican si los apruebas en *Propuestas*. No puede crear, archivar ni borrar áreas por su cuenta, ni ver tus fotos (no están en el sistema).
+Qué puede hacer Claude con él: leer tus áreas, registros, horario, planes y despensa, añadir o corregir registros cuando se lo pidas (quedan marcados como "Claude") fijar los días de teletrabajo o registrar la despensa cuando se lo digas, y **proponer** cambios de estructura o una versión nueva de un plan, que solo se aplican si los apruebas en *Propuestas*. No puede crear, archivar ni borrar áreas por su cuenta, ni ver tus fotos (no están en el sistema).
 
 ## 10. Comprobación final (2 minutos)
 1. Dashboard: aparecen las 8 áreas en la vista general, con lo pendiente de hoy.
@@ -87,8 +92,13 @@ Qué puede hacer Claude con él: leer tus áreas y registros, añadir o corregir
 4. Actions → **backup** → Run workflow → termina en verde y deja un artefacto `lifeos-backup-…`.
 
 ## Cómo se usa a diario
-- **Hoy**: lo pendiente de cada área y los últimos valores. **Semana**: cada indicador día a día con su media y el cambio frente a la semana anterior, y cuántos registros llevas de cada cuestionario.
-- En el gimnasio, *Copiar de la última vez* rellena las series de la sesión anterior para que solo ajustes cargas y repeticiones. Sin cobertura, la app abre y guarda en el teléfono; lo envía sola al volver la red.
+- Pestañas: **Hoy · Horario · Entreno · Compra · Más** (en *Más*: Semana, Áreas, Propuestas y Ajustes).
+- **Hoy**: qué toca ahora y después, lo pendiente de cada área y los últimos valores.
+- **Horario**: el día hora a hora con la sesión de entreno, la receta de cada comida y los lotes de cocina. *Cambiar* fija los días de teletrabajo de esa semana (por defecto X y V) y los días fuera de casa; la cocina corta, el autobús y la despensa se ajustan solos.
+- **Entreno**: cuestionario de 30 s, una tarjeta por ejercicio con la última vez y la sugerencia de progresión (subir, repetir, calibrar o parar por molestia), kg, reps, RIR y molestia por serie, y descanso con vibración. El borrador se guarda en el teléfono a cada toque y funciona sin cobertura.
+- **Compra**: *Despensa* estima lo que tienes (tu último recuento + lo recibido − lo que gasta el menú; los días fuera de casa no cuentan); recuenta cuando quieras. *Lista* calcula lo que falta para el próximo pedido (14 días + 2 de margen) en envases y CHF, avisa del mínimo de 99 CHF y separa Lifepro. *He hecho el pedido* lo guarda y, al recibirlo, *Pedidos → Recibido* lo suma a la despensa.
+- **Semana**: cada indicador día a día con su media y el cambio frente a la semana anterior, y cuántos registros llevas de cada cuestionario.
+- Sin cobertura, la app abre y guarda en el teléfono; lo envía sola al volver la red. El formulario genérico de sesión (con *Copiar de la última vez*) sigue en Áreas → Entrenamiento.
 - Áreas → *Crear, modificar o archivar áreas*: cuestionarios y campos, también tablas con su editor de columnas.
 - **Propuestas**: lo que Claude sugiere cambiar en la estructura, explicado en palabras. Solo se aplica si lo apruebas.
 

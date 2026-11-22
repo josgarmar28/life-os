@@ -1,0 +1,387 @@
+// Modo entreno: la sesión del día serie a serie, con la última vez, la sugerencia de la doble
+// progresión, el descanso y el registro de molestias. Funciona sin cobertura: el borrador se guarda
+// en el teléfono a cada toque y, al terminar, el registro va a la cola si no hay red.
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Entry, Field } from '@shared/model.ts';
+import { addDays, localDate } from '@shared/stats.ts';
+import { isoWeekday, localTime, WEEKDAY_NAME, WEEKDAY_SHORT, type Exercise, type TrainingDay, type TrainingPlan, type Weekday } from '@shared/plans.ts';
+import { exposuresFor, readiness, setsToday, suggest, type Exposure, type Readiness } from '@shared/progression.ts';
+import { loadEntries, useStructure } from '../data';
+import { Link, navigate } from '../router';
+import { explainError } from '../supabase';
+import { send } from '../outbox';
+import { shortDate, usePlans, usePlansFor } from '../plans';
+
+interface SetDraft { kg: string; reps: string; rir: string; molestia: string; zona: string; done: boolean }
+interface LineDraft { key: string; name: string; machine: string; sets: SetDraft[] }
+interface Draft {
+  date: string;
+  template: Weekday;
+  startedAt: string | null;
+  pre: (number | null)[];
+  lines: LineDraft[];
+  cardio: Record<string, { minutes: string; rpe: string; done: boolean }>;
+  notes: string;
+  requestId: string;
+  cardioRequestId: string;
+}
+
+const PRE = [
+  { key: 'pre_sueno', label: 'Sueño' },
+  { key: 'pre_estres', label: 'Estrés (5 = nada)' },
+  { key: 'pre_dolor', label: 'Dolor muscular (5 = nada)' },
+  { key: 'pre_energia', label: 'Energía' },
+  { key: 'pre_motivacion', label: 'Motivación' },
+];
+const HISTORY_KEY = 'lifeos.workouts';
+const draftKey = (date: string) => `lifeos.workout.${date}`;
+const num = (s: string) => { const t = s.trim().replace(',', '.'); if (!t) return null; const n = Number(t); return Number.isFinite(n) ? n : NaN; };
+const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, s % 60)).padStart(2, '0')}`;
+
+function readJson<T>(key: string): T | null {
+  try { const raw = localStorage.getItem(key); return raw ? (JSON.parse(raw) as T) : null; } catch { return null; }
+}
+function writeJson(key: string, v: unknown) {
+  try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* sin almacenamiento */ }
+}
+
+function newDraft(date: string, day: TrainingDay, history: Entry[], level: Readiness): Draft {
+  const lifts = day.exercises.filter((x) => x.type === 'compuesto' || x.type === 'aislamiento');
+  return {
+    date, template: day.weekday, startedAt: null, pre: PRE.map(() => null), notes: '',
+    requestId: crypto.randomUUID(), cardioRequestId: crypto.randomUUID(),
+    lines: lifts.map((ex, i) => {
+      const hist = exposuresFor(ex, history);
+      const sug = suggest(ex, hist, level);
+      const kg = sug.kg ?? hist[0]?.sets[0]?.kg ?? null;
+      return {
+        key: ex.key, name: ex.name, machine: ex.machine ?? '',
+        sets: Array.from({ length: setsToday(ex, level, i === 0) }, () => ({ kg: kg !== null ? String(kg).replace('.', ',') : '', reps: '', rir: '', molestia: '', zona: '', done: false })),
+      };
+    }),
+    cardio: Object.fromEntries(day.exercises.filter((x) => x.type === 'cardio' || x.type === 'movilidad')
+      .map((x) => [x.key, { minutes: x.minutes ? String(x.minutes) : '', rpe: '', done: false }])),
+  };
+}
+
+export function Training({ date: initial }: { date?: string }) {
+  const s = useStructure();
+  const p = usePlans();
+  const today = localDate(new Date(), s.timezone);
+  const date = initial ?? today;
+  const plans = usePlansFor(date);
+  const plan: TrainingPlan | null = plans.training?.content ?? null;
+
+  const area = s.areas.find((a) => a.slug === 'entreno');
+  const sesionForm = s.forms.find((f) => f.area_id === area?.id && f.slug === 'sesion');
+  const cardioForm = s.forms.find((f) => f.area_id === area?.id && f.slug === 'cardio');
+
+  // Historial de sesiones (para "la última vez"), también guardado en el teléfono para el gimnasio sin red.
+  const [history, setHistory] = useState<Entry[]>(() => readJson<Entry[]>(HISTORY_KEY) ?? []);
+  useEffect(() => {
+    if (!sesionForm) return;
+    void loadEntries({ formIds: [sesionForm.id], from: addDays(today, -180), to: today })
+      .then((rows) => { setHistory(rows); writeJson(HISTORY_KEY, rows); })
+      .catch(() => { /* sin red: se usa la copia */ });
+  }, [sesionForm?.id, today]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [draft, setDraftState] = useState<Draft | null>(() => readJson<Draft>(draftKey(date)));
+  const setDraft = (d: Draft | null) => {
+    setDraftState(d);
+    if (d) writeJson(draftKey(d.date), d);
+    else try { localStorage.removeItem(draftKey(date)); } catch { /* nada */ }
+  };
+  const weekday = isoWeekday(date);
+  const template = draft?.template ?? (plan?.days.find((d) => d.weekday === weekday) ? weekday : null);
+  const day = plan?.days.find((d) => d.weekday === template) ?? null;
+
+  const level = draft ? readiness(draft.pre, draft.pre[2]) : { level: 'normal' as Readiness, text: '' };
+  const [errors, setErrors] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(0);
+  const timer = useRest();
+
+  if (!plan && !p.loading) {
+    return <main><header className="page-head"><h1>Entreno</h1></header><p>Aún no hay rutina. Impórtala en <Link to="/ajustes">Ajustes → Planes</Link> o pídesela a Claude.</p></main>;
+  }
+  if (!sesionForm) return <main><h1>Entreno</h1><p className="error">Falta el cuestionario Entrenamiento › Sesión de pesas.</p></main>;
+
+  function start(d: TrainingDay) {
+    setDraft(newDraft(date, d, history, 'normal'));
+    setOpen(0);
+  }
+
+  const update = (fn: (d: Draft) => void) => {
+    if (!draft) return;
+    const copy = structuredClone(draft);
+    fn(copy);
+    setDraft(copy);
+  };
+
+  async function finish() {
+    if (!draft || !day) return;
+    const errs: string[] = [];
+    const seriesField = s.fields.find((f) => f.form_id === sesionForm!.id && f.key === 'series' && f.status === 'active');
+    const cols = new Set(seriesField?.columns.map((c) => c.key) ?? []);
+    const rows: Record<string, unknown>[] = [];
+    for (const l of draft.lines) {
+      l.sets.forEach((st, i) => {
+        if (!st.done && !st.reps.trim()) return;
+        const [kg, reps, rir, mol] = [num(st.kg), num(st.reps), num(st.rir), num(st.molestia)];
+        if (reps === null || Number.isNaN(reps)) errs.push(`${l.name}, serie ${i + 1}: faltan las repeticiones`);
+        if ([kg, rir, mol].some((x) => Number.isNaN(x))) errs.push(`${l.name}, serie ${i + 1}: algún número no es válido`);
+        const row: Record<string, unknown> = { ejercicio: l.name, maquina: l.machine || undefined, carga_kg: kg ?? undefined, reps: reps ?? undefined, rir: rir ?? undefined,
+          molestia: mol ?? undefined, zona: st.zona.trim() || undefined, linea: l.key };
+        rows.push(Object.fromEntries(Object.entries(row).filter(([k, v]) => v !== undefined && cols.has(k))));
+      });
+    }
+    const cardioItems = day.exercises.filter((x) => x.type === 'cardio' && num(draft.cardio[x.key]?.minutes ?? '') !== null);
+    if (!rows.length && !cardioItems.length) errs.push('No hay nada que guardar: marca al menos una serie o el cardio.');
+    setErrors(errs);
+    if (errs.length) return;
+
+    setBusy(true);
+    const now = new Date();
+    const occurredAt = date === today ? now.toISOString() : new Date(`${date}T08:00:00`).toISOString();
+    const fieldsOf = (formId: string) => new Set(s.fields.filter((f: Field) => f.form_id === formId && f.status === 'active').map((f) => f.key));
+    const pick = (formId: string, values: Record<string, unknown>) => {
+      const keys = fieldsOf(formId);
+      return Object.fromEntries(Object.entries(values).filter(([k, v]) => keys.has(k) && v !== null && v !== undefined && v !== ''));
+    };
+    let queued = false;
+    try {
+      if (rows.length) {
+        const values = pick(sesionForm!.id, {
+          ...Object.fromEntries(PRE.map((q, i) => [q.key, draft.pre[i]])),
+          inicio: draft.startedAt ? localTime(new Date(draft.startedAt), s.timezone) : null,
+          fin: date === today ? localTime(now, s.timezone) : null,
+          series: rows,
+          observaciones: draft.notes.trim() || null,
+        });
+        const r = await send('add_entry', {
+          p_form_id: sesionForm!.id, p_values: values, p_request_id: draft.requestId, p_occurred_at: occurredAt,
+          p_local_date: date, p_note: `${day.name}${level.level !== 'normal' ? ` · ${level.level === 'baja' ? 'baja confianza' : 'sesión mínima'}` : ''}`,
+          p_quality: 'manual', p_supersedes_id: null,
+        }, `🏋️ ${day.name} ${date}`);
+        queued ||= r === 'queued';
+      }
+      if (cardioItems.length && cardioForm) {
+        const main = cardioItems[0];
+        const c = draft.cardio[main.key];
+        const abs = draft.lines.filter((l) => /abdomen/i.test(day.exercises.find((x) => x.key === l.key)?.muscle ?? ''))
+          .reduce((a, l) => a + l.sets.filter((st) => st.done || st.reps.trim()).length, 0);
+        const mob = day.exercises.filter((x) => x.type === 'movilidad').some((x) => draft.cardio[x.key]?.done);
+        const r = await send('add_entry', {
+          p_form_id: cardioForm.id,
+          p_values: pick(cardioForm.id, {
+            tipo: main.key === 'airbike' ? 'airbike' : main.key === 'paseo' ? 'paseo' : 'otro',
+            duracion: num(c.minutes), esfuerzo: num(c.rpe), abdomen_series: abs || null, movilidad: mob,
+          }),
+          p_request_id: draft.cardioRequestId, p_occurred_at: occurredAt, p_local_date: date, p_note: day.name, p_quality: 'manual', p_supersedes_id: null,
+        }, `🚴 ${day.name} ${date}`);
+        queued ||= r === 'queued';
+      }
+      setDraft(null);
+      timer.stop();
+      if (queued) alert('Sin conexión: la sesión queda guardada en el teléfono y se enviará sola al volver la conexión.');
+      navigate('/a/entreno');
+    } catch (e) {
+      setErrors([explainError(e)]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const header = (
+    <header className="page-head">
+      <h1>Entreno</h1>
+      <p className="muted cap">{shortDate(date, { weekday: 'long', day: 'numeric', month: 'long' })}{day ? ` · ${day.name}` : ''}</p>
+      {plans.training?.preview ? <p className="banner">Vista previa: esta rutina empieza el {shortDate(plans.training.row.valid_from, { day: 'numeric', month: 'long' })}.</p> : null}
+    </header>
+  );
+
+  if (!draft) {
+    const others = plan?.days.filter((d) => d.kind !== 'descanso') ?? [];
+    return (
+      <main>
+        {header}
+        {day && day.kind !== 'descanso' ? (
+          <section className="card">
+            <h2>{day.name}</h2>
+            {day.notes ? <p className="muted small">{day.notes}</p> : null}
+            <ol className="plan-list">
+              {day.exercises.map((x) => <li key={x.key}><span className="grow">{x.name}{x.machine ? <span className="muted small"> · {x.machine}</span> : null}</span><span className="muted small">{target(x)}</span></li>)}
+            </ol>
+            {date > today ? <p className="muted small">Es un día futuro: aquí ves lo que toca; el registro se abre ese día.</p>
+              : <button className="btn primary wide" onClick={() => start(day)}>Empezar</button>}
+          </section>
+        ) : <p>Hoy no toca sesión{day ? ` (${day.name})` : ''}.</p>}
+        {others.length && date <= today ? (
+          <details className="card">
+            <summary>Hacer otra sesión (cambio de día)</summary>
+            <div className="chips">{others.map((d) => <button key={d.weekday} className="chip" onClick={() => start(d)}>{WEEKDAY_SHORT[d.weekday]} · {d.name}</button>)}</div>
+          </details>
+        ) : null}
+        <p className="muted small"><Link to={`/entreno/${addDays(date, -1)}`}>← {WEEKDAY_NAME[isoWeekday(addDays(date, -1))]}</Link> · <Link to={`/entreno/${addDays(date, 1)}`}>{WEEKDAY_NAME[isoWeekday(addDays(date, 1))]} →</Link></p>
+      </main>
+    );
+  }
+
+  return (
+    <main className="workout">
+      {header}
+      {timer.left !== null ? (
+        <div className={timer.left <= 0 ? 'rest-bar done' : 'rest-bar'} role="timer" aria-live="polite">
+          <span className="grow">{timer.left > 0 ? <>Descanso <strong>{mmss(timer.left)}</strong></> : <strong>¡Siguiente serie!</strong>}</span>
+          <button className="btn small ghost" onClick={() => timer.add(-15)}>−15 s</button>
+          <button className="btn small ghost" onClick={() => timer.add(15)}>+15 s</button>
+          <button className="btn small" onClick={() => timer.stop()}>{timer.left > 0 ? 'Saltar' : 'Vale'}</button>
+        </div>
+      ) : null}
+
+      <section className="card">
+        <h2>Antes de empezar (30 s)</h2>
+        {PRE.map((q, i) => (
+          <div key={q.key} className="pre-row">
+            <span className="grow small">{q.label}</span>
+            <div className="chips tight" role="radiogroup" aria-label={q.label}>
+              {[1, 2, 3, 4, 5].map((v) => (
+                <button key={v} type="button" role="radio" aria-checked={draft.pre[i] === v} className={draft.pre[i] === v ? 'chip on' : 'chip'}
+                  onClick={() => update((d) => { d.pre[i] = d.pre[i] === v ? null : v; if (!d.startedAt) d.startedAt = new Date().toISOString(); })}>{v}</button>
+              ))}
+            </div>
+          </div>
+        ))}
+        <p className={level.level === 'normal' ? 'muted small' : 'banner'}>{level.text}</p>
+      </section>
+
+      {draft.lines.map((l, li) => {
+        const ex = day?.exercises.find((x) => x.key === l.key);
+        if (!ex) return null;
+        const hist = exposuresFor(ex, history);
+        return <LineCard key={l.key} ex={ex} line={l} hist={hist} level={level.level} open={open === li} onOpen={() => setOpen(li)}
+          onChange={(fn) => update((d) => fn(d.lines[li]))}
+          onSetDone={(i) => {
+            update((d) => {
+              d.lines[li].sets[i].done = true;
+              if (!d.startedAt) d.startedAt = new Date().toISOString();
+              const next = d.lines[li].sets[i + 1];
+              if (next && !next.kg && d.lines[li].sets[i].kg) next.kg = d.lines[li].sets[i].kg;
+            });
+            timer.start(ex.rest_s ?? 120);
+            if (i === l.sets.length - 1) setOpen(li + 1);
+          }} />;
+      })}
+
+      {day?.exercises.filter((x) => x.type === 'cardio' || x.type === 'movilidad').map((x) => {
+        const c = draft.cardio[x.key] ?? { minutes: '', rpe: '', done: false };
+        return (
+          <section key={x.key} className="card">
+            <h2>{x.name}</h2>
+            {x.notes ? <p className="muted small">{x.notes}</p> : null}
+            {x.type === 'cardio' ? (
+              <div className="row gap">
+                <label className="grow">Minutos<input inputMode="decimal" value={c.minutes} onChange={(e) => update((d) => { d.cardio[x.key] = { ...c, minutes: e.target.value }; })} /></label>
+                <label className="grow">Esfuerzo (RPE 1-10)<input inputMode="numeric" value={c.rpe} onChange={(e) => update((d) => { d.cardio[x.key] = { ...c, rpe: e.target.value }; })} /></label>
+              </div>
+            ) : (
+              <label className="check"><input type="checkbox" checked={c.done} onChange={(e) => update((d) => { d.cardio[x.key] = { ...c, done: e.target.checked }; })} /> Hecha{x.minutes ? ` (${x.minutes} min)` : ''}</label>
+            )}
+          </section>
+        );
+      })}
+
+      <section className="card">
+        <label>Observaciones<textarea rows={2} value={draft.notes} onChange={(e) => update((d) => { d.notes = e.target.value; })} /></label>
+      </section>
+      {errors.length ? <ul className="error">{errors.map((e) => <li key={e}>{e}</li>)}</ul> : null}
+      <div className="sticky-actions row gap">
+        <button className="btn primary grow" disabled={busy} onClick={() => void finish()}>{busy ? 'Guardando…' : 'Terminar y guardar'}</button>
+        <button className="btn ghost" onClick={() => { if (confirm('¿Descartar esta sesión sin guardar?')) { setDraft(null); timer.stop(); } }}>Descartar</button>
+      </div>
+    </main>
+  );
+}
+
+function target(x: Exercise): string {
+  if (x.type === 'cardio' || x.type === 'movilidad') return x.minutes ? `${x.minutes} min` : '';
+  return `${x.sets} × ${x.reps?.[0]}-${x.reps?.[1]}${x.per_side ? ' por lado' : ''}${x.rir ? ` · RIR ${x.rir[0]}-${x.rir[1]}` : ''}`;
+}
+
+function LineCard({ ex, line, hist, level, open, onOpen, onChange, onSetDone }: {
+  ex: Exercise; line: LineDraft; hist: Exposure[]; level: Readiness; open: boolean; onOpen: () => void;
+  onChange: (fn: (l: LineDraft) => void) => void; onSetDone: (i: number) => void;
+}) {
+  const sug = useMemo(() => suggest(ex, hist, level), [ex, hist, level]);
+  const done = line.sets.filter((s) => s.done).length;
+  const last = hist[0];
+  return (
+    <section className={open ? 'card line open' : 'card line'}>
+      <button className="line-head" onClick={onOpen} aria-expanded={open}>
+        <span className="grow">
+          <strong>{line.name}</strong>
+          <span className="muted small block">{line.machine ? `${line.machine} · ` : ''}{target(ex)}{ex.rest_s ? ` · ${mmss(ex.rest_s)}` : ''}</span>
+        </span>
+        <span className={done === line.sets.length ? 'tag new' : 'tag'}>{done}/{line.sets.length}</span>
+      </button>
+      {open ? (
+        <>
+          <div className={`suggestion ${sug.action}`}>
+            <strong>{sug.title}</strong>
+            <span className="small">{sug.why}</span>
+            {level !== 'normal' && ex.type === 'compuesto' ? <span className="small">Hoy RIR +1 en este compuesto.</span> : null}
+          </div>
+          {last ? <p className="muted small">Última vez ({last.date.slice(8)}/{last.date.slice(5, 7)}): {last.sets.map((s) => `${s.kg ?? '–'}×${s.reps ?? '–'}${s.rir !== null ? ` @${s.rir}` : ''}`).join(' · ')}</p> : null}
+          {ex.notes ? <p className="muted small">{ex.notes}</p> : null}
+          <div className="sets">
+            <div className="set head" aria-hidden="true"><span>#</span><span>kg</span><span>reps</span><span>RIR</span><span>dolor</span><span /></div>
+            {line.sets.map((st, i) => (
+              <div key={i} className={st.done ? 'set done' : 'set'}>
+                <span className="muted">{i + 1}</span>
+                <input aria-label={`Serie ${i + 1} kg`} inputMode="decimal" value={st.kg} onChange={(e) => onChange((l) => { l.sets[i].kg = e.target.value; })} />
+                <input aria-label={`Serie ${i + 1} reps`} inputMode="numeric" placeholder={ex.reps ? `${ex.reps[0]}-${ex.reps[1]}` : ''} value={st.reps} onChange={(e) => onChange((l) => { l.sets[i].reps = e.target.value; })} />
+                <input aria-label={`Serie ${i + 1} RIR`} inputMode="numeric" placeholder={ex.rir ? `${ex.rir[0]}-${ex.rir[1]}` : ''} value={st.rir} onChange={(e) => onChange((l) => { l.sets[i].rir = e.target.value; })} />
+                <input aria-label={`Serie ${i + 1} molestia 0-10`} inputMode="numeric" placeholder="0" value={st.molestia} onChange={(e) => onChange((l) => { l.sets[i].molestia = e.target.value; })} />
+                <button className={st.done ? 'btn small ok' : 'btn small primary'} aria-label={`Serie ${i + 1} hecha`} onClick={() => onSetDone(i)}>✓</button>
+                {Number(st.molestia.replace(',', '.')) >= 3 ? (
+                  <input className="zona" aria-label={`Serie ${i + 1} zona de la molestia`} placeholder="¿Dónde? (hombro dcho., lumbar…)" value={st.zona}
+                    onChange={(e) => onChange((l) => { l.sets[i].zona = e.target.value; })} />
+                ) : null}
+              </div>
+            ))}
+          </div>
+          <div className="row gap">
+            <button className="btn small ghost" onClick={() => onChange((l) => { const prev = l.sets[l.sets.length - 1]; l.sets.push({ kg: prev?.kg ?? '', reps: '', rir: '', molestia: '', zona: '', done: false }); })}>+ Serie</button>
+            {line.sets.length > 1 ? <button className="btn small ghost" onClick={() => onChange((l) => { l.sets.pop(); })}>− Serie</button> : null}
+            <label className="grow machine">Máquina<input value={line.machine} onChange={(e) => onChange((l) => { l.machine = e.target.value; })} /></label>
+          </div>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+/** Temporizador de descanso que sobrevive a bloquear el móvil (cuenta contra la hora de fin). */
+function useRest() {
+  const [end, setEnd] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const buzzed = useRef(false);
+  useEffect(() => {
+    if (end === null) return;
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, [end]);
+  const left = end === null ? null : Math.ceil((end - now) / 1000);
+  useEffect(() => {
+    if (left !== null && left <= 0 && !buzzed.current) {
+      buzzed.current = true;
+      try { navigator.vibrate?.([300, 150, 300]); } catch { /* sin vibración */ }
+    }
+  }, [left]);
+  return {
+    left,
+    start: (seconds: number) => { buzzed.current = false; setNow(Date.now()); setEnd(Date.now() + seconds * 1000); },
+    add: (seconds: number) => setEnd((e) => (e === null ? e : e + seconds * 1000)),
+    stop: () => setEnd(null),
+  };
+}

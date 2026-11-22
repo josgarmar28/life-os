@@ -18,7 +18,8 @@ test('primer acceso: código por correo, crear contraseña y volver a entrar con
   await page.getByRole('button', { name: 'Entrar con el código' }).click();
   await expect(page.getByRole('heading', { name: 'Hoy' })).toBeVisible();
 
-  await page.getByRole('link', { name: 'Ajustes' }).click();
+  await page.locator('nav.tabs').getByRole('link', { name: 'Más' }).click();
+  await page.getByRole('link', { name: /^Ajustes/ }).click();
   await page.getByLabel('Nueva contraseña').fill(PASSWORD);
   await page.getByLabel('Repítela').fill(PASSWORD);
   await page.getByRole('button', { name: 'Guardar contraseña' }).click();
@@ -198,7 +199,8 @@ test('sin cobertura: la app abre, registra en el teléfono y lo envía al volver
 
 test('semana: indicadores de todas las áreas día a día', async ({ page }) => {
   await login(page);
-  await page.locator('nav.tabs').getByRole('link', { name: 'Semana', exact: true }).click();
+  await page.locator('nav.tabs').getByRole('link', { name: 'Más' }).click();
+  await page.getByRole('link', { name: /^Semana/ }).click();
   await expect(page.getByRole('heading', { name: 'Semana', exact: true })).toBeVisible();
   const grid = page.getByRole('table', { name: 'Indicadores por día' });
   await expect(grid).toBeVisible();

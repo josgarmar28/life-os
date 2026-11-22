@@ -4,6 +4,7 @@ import { CADENCE_LABEL } from '@shared/model.ts';
 import { loadEntries, useAsync, useStructure } from '../data';
 import { Link } from '../router';
 import { Sparkline } from '../components/Sparkline';
+import { NowCard } from './Schedule';
 
 export function Overview() {
   const s = useStructure();
@@ -27,6 +28,8 @@ export function Overview() {
         <h1>Hoy</h1>
         <p className="muted cap">{dateLabel}</p>
       </header>
+
+      <NowCard />
 
       {s.pendingProposals ? (
         <Link to="/propuestas" className="banner">Claude tiene {s.pendingProposals} {s.pendingProposals === 1 ? 'propuesta' : 'propuestas'} para que decidas.</Link>

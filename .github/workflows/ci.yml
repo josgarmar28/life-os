@@ -63,7 +63,8 @@ jobs:
 
   e2e:
     name: Recorrido completo (Supabase local, navegador y conector)
-    runs-on: ubuntu-latest
+    # Fijado: Playwright 1.56 no instala Chromium en ubuntu-26.04 (la imagen de ubuntu-latest desde nov-2026).
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

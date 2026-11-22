@@ -95,7 +95,7 @@ export interface Entry {
 
 export interface Proposal {
   id: string;
-  kind: 'area.save' | 'form.save' | 'field.save' | 'form.archive' | 'field.archive' | 'note';
+  kind: 'area.save' | 'form.save' | 'field.save' | 'form.archive' | 'field.archive' | 'plan.save' | 'note';
   payload: Record<string, unknown>;
   payload_hash: string;
   rationale: string;

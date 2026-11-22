@@ -13,6 +13,11 @@ import { Proposals } from './pages/Proposals';
 import { Settings } from './pages/Settings';
 import { Consent } from './pages/Consent';
 import { Week } from './pages/Week';
+import { Schedule } from './pages/Schedule';
+import { Training } from './pages/Training';
+import { Shopping } from './pages/Shopping';
+import { More } from './pages/More';
+import { PlansProvider } from './plans';
 
 const OWNER_KEY = 'lifeos.owner';
 const readKey = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -62,7 +67,9 @@ export function App() {
   }
   return (
     <StructureProvider>
-      <Shell path={loc.path} />
+      <PlansProvider>
+        <Shell path={loc.path} />
+      </PlansProvider>
     </StructureProvider>
   );
 }
@@ -87,12 +94,21 @@ function Shell({ path }: { path: string }) {
   else if ((m = match('/gestion/:area', path))) page = <ManageArea key={path} slug={m.area} />;
   else if (path === '/semana') page = <Week />;
   else if ((m = match('/semana/:date', path)) && /^\d{4}-\d{2}-\d{2}$/.test(m.date)) page = <Week key={path} date={m.date} />;
+  else if (path === '/horario') page = <Schedule />;
+  else if ((m = match('/horario/:date', path)) && /^\d{4}-\d{2}-\d{2}$/.test(m.date)) page = <Schedule key={path} date={m.date} />;
+  else if (path === '/entreno') page = <Training />;
+  else if ((m = match('/entreno/:date', path)) && /^\d{4}-\d{2}-\d{2}$/.test(m.date)) page = <Training key={path} date={m.date} />;
+  else if (path === '/compra') page = <Shopping tab="lista" />;
+  else if (path === '/compra/despensa') page = <Shopping tab="despensa" />;
+  else if (path === '/compra/pedidos') page = <Shopping tab="pedidos" />;
+  else if (path === '/mas') page = <More />;
   else if (path === '/propuestas') page = <Proposals />;
   else if (path === '/ajustes') page = <Settings />;
   else page = <main><p>Página no encontrada.</p><Link to="/">Ir al inicio</Link></main>;
 
-  const isOn = (to: string) =>
-    to === '/' ? path === '/' : path === to || path.startsWith(`${to}/`) || (to === '/a' && path.startsWith('/gestion'));
+  const MORE = ['/mas', '/semana', '/a', '/gestion', '/propuestas', '/ajustes'];
+  const under = (to: string) => path === to || path.startsWith(`${to}/`);
+  const isOn = (to: string) => (to === '/' ? path === '/' : to === '/mas' ? MORE.some(under) : under(to));
   const tab = (to: string, label: string, badge?: number) => (
     <Link to={to} className={isOn(to) ? 'tab on' : 'tab'}>
       {label}{badge ? <span className="badge">{badge}</span> : null}
@@ -107,10 +123,10 @@ function Shell({ path }: { path: string }) {
       {s.loading ? <p className="muted pad">Cargando…</p> : page}
       <nav className="tabs">
         {tab('/', 'Hoy')}
-        {tab('/semana', 'Semana')}
-        {tab('/a', 'Áreas')}
-        {tab('/propuestas', 'Propuestas', s.pendingProposals)}
-        {tab('/ajustes', 'Ajustes')}
+        {tab('/horario', 'Horario')}
+        {tab('/entreno', 'Entreno')}
+        {tab('/compra', 'Compra')}
+        {tab('/mas', 'Más', s.pendingProposals)}
       </nav>
     </>
   );

@@ -8,9 +8,10 @@
 // Se despliega con --no-verify-jwt: la verificación la hace esta función, para poder devolver el
 // 401 con `WWW-Authenticate` que Claude necesita para descubrir el servidor de autorización.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0';
-import type { Api } from './handler.ts';
+import type { Api, OrderRow } from './handler.ts';
 import { handleBody } from './handler.ts';
 import type { Area, Entry, Field, Form, Proposal } from '../_shared/model.ts';
+import type { PlanRow, WeekRow } from '../_shared/plans.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 // Clave pública: los proyectos nuevos solo tienen claves "publishable" (SUPABASE_PUBLISHABLE_KEYS,
@@ -74,6 +75,11 @@ function makeApi(db: SupabaseClient): Api {
       if (q.status) query = query.eq('status', q.status);
       return must<Proposal[]>(await query);
     },
+    plans: async () => must<PlanRow[]>(await api.from('plans').select('*').order('version')),
+    weeks: async () => must<WeekRow[]>(await api.from('weeks').select('week_start,telework,away,note').order('week_start')),
+    // Movimientos de despensa: suficiente para estimar (el recuento más reciente corta la historia anterior).
+    stockMoves: async () => must(await api.from('stock_moves').select('product,kind,qty,occurred_at').order('occurred_at', { ascending: false }).limit(5000)),
+    orders: async () => must<OrderRow[]>(await api.from('shopping_orders').select('id,status,delivery_date,items,total').order('created_at', { ascending: false }).limit(50)),
     rpc: async <T>(fn: string, args: Record<string, unknown>) => must<T>(await api.rpc(fn, args)),
     async timezone() {
       if (!tz) tz = (must<{ timezone: string }>(await api.rpc('whoami', {}))).timezone;
