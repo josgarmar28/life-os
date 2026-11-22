@@ -81,9 +81,49 @@ export interface TrainingDay {
   exercises: Exercise[];
 }
 
+export type TrainingMode = 'progresion' | 'mantenimiento';
+
 export interface TrainingPlan {
   days: TrainingDay[];
   rules?: string[];
+  /** Gimnasio de la rutina (slug). Sin él, el de casa: cada gimnasio tiene su plan vigente y su historial. */
+  gym?: string;
+  /** Nombre para mostrar; si falta, sale del slug. */
+  gym_name?: string;
+  /** "mantenimiento" (gimnasio de viaje): repetir carga, sin subir ni decidir escalones. */
+  mode?: TrainingMode;
+}
+
+/** Gimnasio de casa: el de los planes de entreno sin "gym". */
+export const HOME_GYM = 'elevate';
+
+/** Slug del gimnasio de una rutina (o de cualquier plan: los que no son de entreno no tienen). */
+export function gymOf(content: unknown): string {
+  const g = isObj(content) ? content.gym : undefined;
+  return typeof g === 'string' && g.trim() ? g : HOME_GYM;
+}
+
+export function gymLabel(gym: string, plan?: Pick<TrainingPlan, 'gym_name'> | null): string {
+  if (plan?.gym_name?.trim()) return plan.gym_name;
+  return gym.split('_').map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(' ');
+}
+
+/** Periodo en otro gimnasio (core.gym_period): ambos días incluidos. */
+export interface GymPeriod {
+  id: string;
+  gym: string;
+  date_from: string;
+  date_to: string;
+  note: string;
+}
+
+/** Gimnasio que toca un día: el del periodo que lo cubre o, si no hay, el de casa. */
+export function gymForDate(periods: GymPeriod[], date: string): string {
+  return periods.find((p) => p.date_from <= date && date <= p.date_to)?.gym ?? HOME_GYM;
+}
+
+export function trainingMode(plan: Pick<TrainingPlan, 'mode'> | null | undefined): TrainingMode {
+  return plan?.mode === 'mantenimiento' ? 'mantenimiento' : 'progresion';
 }
 
 // ---------------------------------------------------------------------------
@@ -249,6 +289,9 @@ export function validatePlan(kind: PlanKind, content: unknown): string[] {
     });
     const wd = days.filter(isObj).map((d) => d.weekday);
     if (new Set(wd).size !== wd.length) e.push('Hay dos sesiones el mismo día de la semana');
+    if (content.gym !== undefined && !(isStr(content.gym) && KEY.test(content.gym))) e.push('gym: slug en minúsculas_con_guiones_bajos');
+    if (content.gym_name !== undefined && !isStr(content.gym_name)) e.push('gym_name: texto');
+    if (content.mode !== undefined && content.mode !== 'progresion' && content.mode !== 'mantenimiento') e.push('mode: progresion o mantenimiento');
   } else {
     const { products, recipes, days } = content;
     if (!Array.isArray(products) || !Array.isArray(recipes) || !Array.isArray(days)) return ['El menú necesita "products", "recipes" y "days"'];
@@ -336,11 +379,13 @@ export function planSummary(kind: PlanKind, content: unknown): string[] {
   if (!isObj(content)) return [];
   if (kind === 'training') {
     const days = (Array.isArray(content.days) ? content.days : []) as TrainingDay[];
-    return [...days].sort((a, b) => a.weekday - b.weekday).map((d) => {
+    const t = content as unknown as TrainingPlan;
+    const head = t.gym || t.mode ? [`Gimnasio: ${gymLabel(gymOf(t), t)}${trainingMode(t) === 'mantenimiento' ? ' · mantenimiento (sin subir cargas ni escalones)' : ''}`] : [];
+    return [...head, ...[...days].sort((a, b) => a.weekday - b.weekday).map((d) => {
       const lifts = (d.exercises ?? []).filter((x) => x.type === 'compuesto' || x.type === 'aislamiento');
       const sets = lifts.reduce((a, x) => a + (x.sets ?? 0), 0);
       return `${WEEKDAY_NAME[d.weekday]}: ${d.name}${lifts.length ? ` · ${lifts.length} ${lifts.length === 1 ? 'ejercicio' : 'ejercicios'}, ${sets} series` : ''}`;
-    });
+    })];
   }
   if (kind === 'meals') {
     const m = content as unknown as MealsPlan;
@@ -365,15 +410,26 @@ export function isoWeekday(date: string): Weekday {
 /**
  * El plan vigente en `date`: activo, con la fecha de inicio más reciente que no pase de `date`
  * (y, a igual fecha, la versión más alta). Si aún no rige ninguno, el próximo como vista previa.
+ * Las rutinas van por gimnasio: sin `gym`, la del gimnasio de casa.
  */
-export function planFor<T>(plans: PlanRow[], kind: PlanKind, date: string): { row: PlanRow; content: T; preview: boolean } | null {
-  const own = plans.filter((p) => p.kind === kind && p.status === 'active');
+export function planFor<T>(plans: PlanRow[], kind: PlanKind, date: string, gym: string = HOME_GYM): { row: PlanRow; content: T; preview: boolean } | null {
+  const own = plans.filter((p) => p.kind === kind && p.status === 'active' && (kind !== 'training' || gymOf(p.content) === gym));
   const current = own.filter((p) => p.valid_from <= date)
     .sort((a, b) => b.valid_from.localeCompare(a.valid_from) || b.version - a.version)[0];
   if (current) return { row: current, content: current.content as T, preview: false };
   const next = own.filter((p) => p.valid_from > date)
     .sort((a, b) => a.valid_from.localeCompare(b.valid_from) || b.version - a.version)[0];
   return next ? { row: next, content: next.content as T, preview: true } : null;
+}
+
+/** Gimnasios con rutina activa (el de casa primero), cada uno con su plan vigente o próximo en `date`. */
+export function trainingGyms(plans: PlanRow[], date: string): { gym: string; label: string; mode: TrainingMode; plan: { row: PlanRow; content: TrainingPlan; preview: boolean } }[] {
+  const gyms = [...new Set(plans.filter((p) => p.kind === 'training' && p.status === 'active').map((p) => gymOf(p.content)))]
+    .sort((a, b) => (a === HOME_GYM ? -1 : b === HOME_GYM ? 1 : a.localeCompare(b)));
+  return gyms.flatMap((gym) => {
+    const plan = planFor<TrainingPlan>(plans, 'training', date, gym);
+    return plan ? [{ gym, label: gymLabel(gym, plan.content), mode: trainingMode(plan.content), plan }] : [];
+  });
 }
 
 /** Días de teletrabajo y fuera de casa de la semana de `date`. */

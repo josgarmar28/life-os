@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, explainError, fetchAll, mcpUrl, rpc, supabase } from '../supabase';
 import { useAsync, useStructure } from '../data';
 import { discard, flushOutbox, readOutbox, type Pending } from '../outbox';
-import { PLAN_LABEL, parsePlanFile, planSummary, type PlanFileItem, type PlanKind, type PlanRow } from '@shared/plans.ts';
+import { gymLabel, gymOf, HOME_GYM, PLAN_LABEL, parsePlanFile, planSummary, type PlanFileItem, type PlanKind, type PlanRow, type TrainingPlan } from '@shared/plans.ts';
 import { shortDate, usePlans } from '../plans';
 
 interface Activity { ts: string; actor: string; action: string; table_name: string; row_id: string | null }
@@ -214,7 +214,7 @@ function PlansCard() {
               <ul className="list compact">
                 {rows.slice(0, 5).map((r) => (
                   <li key={r.id} className={r.status === 'archived' ? 'dim' : ''}>
-                    <span className="grow">v{r.version} · {r.name}<span className="muted small"> · desde {shortDate(r.valid_from, { day: 'numeric', month: 'short', year: 'numeric' })}{r.source === 'claude' ? ' · de Claude' : ''}{r.status === 'archived' ? ' · archivado' : ''}</span></span>
+                    <span className="grow">v{r.version} · {r.name}<span className="muted small">{k === 'training' && gymOf(r.content) !== HOME_GYM ? ` · ${gymLabel(gymOf(r.content), r.content as TrainingPlan)}` : ''} · desde {shortDate(r.valid_from, { day: 'numeric', month: 'short', year: 'numeric' })}{r.source === 'claude' ? ' · de Claude' : ''}{r.status === 'archived' ? ' · archivado' : ''}</span></span>
                     <button className="link" onClick={() => download(r)}>Descargar</button>
                     <button className="link" onClick={() => void setStatus(r, r.status === 'archived' ? 'active' : 'archived')}>{r.status === 'archived' ? 'Recuperar' : 'Archivar'}</button>
                   </li>

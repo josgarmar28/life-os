@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Area, Entry, Field, Form } from '@shared/model.ts';
 import { readFileSync } from 'node:fs';
 import { handleBody, handleMessage, TOOLS, type Api, type OrderRow } from '../../../supabase/functions/mcp/handler.ts';
-import { parsePlanFile, type PlanRow, type WeekRow } from '@shared/plans.ts';
+import { parsePlanFile, type GymPeriod, type PlanRow, type WeekRow } from '@shared/plans.ts';
 
 const planFile = parsePlanFile(JSON.parse(readFileSync(new URL('../e2e/fixtures/planes-prueba.json', import.meta.url), 'utf8')));
 const planRows: PlanRow[] = planFile.plans.map((p, i) => ({ id: `p${i}`, kind: p.kind, version: 1, name: p.name, valid_from: p.valid_from, content: p.content as Record<string, unknown>,
@@ -16,7 +16,7 @@ const peso: Field = { id: 'fd1', form_id: 'fm1', key: 'peso', label: 'Peso', hel
 const e = (d: string, v: number): Entry => ({ id: `e-${d}`, form_id: 'fm1', area_id: 'a1', occurred_at: `${d}T06:00:00Z`, local_date: d, data: { peso: v },
   note: '', source: 'dashboard', quality: 'manual', supersedes_id: null, actor: 'owner', created_at: '' });
 
-interface Extra { plans?: PlanRow[]; weeks?: WeekRow[]; moves?: { product: string; kind: 'count' | 'purchase' | 'adjust'; qty: number; occurred_at: string }[]; orders?: OrderRow[] }
+interface Extra { plans?: PlanRow[]; weeks?: WeekRow[]; periods?: GymPeriod[]; moves?: { product: string; kind: 'count' | 'purchase' | 'adjust'; qty: number; occurred_at: string }[]; orders?: OrderRow[] }
 function fakeApi(entries: Entry[] = [], extra: Extra = {}) {
   const calls: { fn: string; args: Record<string, unknown> }[] = [];
   const api: Api = {
@@ -28,6 +28,7 @@ function fakeApi(entries: Entry[] = [], extra: Extra = {}) {
     proposals: async () => [],
     plans: async () => extra.plans ?? [],
     weeks: async () => extra.weeks ?? [],
+    gymPeriods: async () => extra.periods ?? [],
     stockMoves: async () => extra.moves ?? [],
     orders: async () => extra.orders ?? [],
     rpc: async <T,>(fn: string, args: Record<string, unknown>) => {
@@ -160,6 +161,41 @@ describe('planes, horario y despensa', () => {
     expect(out.versions).toHaveLength(1);
     expect(out.current.summary[0]).toMatch(/^Lunes: /);
     expect(out.current.content).toEqual(planRows[1].content);
+  });
+
+  it('plan de entreno por gimnasio: el de casa por defecto y la lista de gimnasios', async () => {
+    const t = planRows.find((r) => r.kind === 'training')!;
+    const viaje = { ...t, id: 'zona', version: t.version + 1, content: { ...(t.content as object), gym: 'la_zona', gym_name: 'La Zona', mode: 'mantenimiento' } };
+    const { api } = withPlans({ plans: [...planRows, viaje] });
+    const home = (await call(api, 'lifeos_plan', { kind: 'training' })).structuredContent as { gym: string; gyms: { gym: string; mode: string }[]; current: { version: number }; versions: { gym: string }[] };
+    expect(home.gym).toBe('elevate');
+    expect(home.current.version).toBe(t.version);
+    expect(home.gyms.map((g) => [g.gym, g.mode])).toEqual([['elevate', 'progresion'], ['la_zona', 'mantenimiento']]);
+    expect(home.versions.map((v) => v.gym)).toEqual(['la_zona', 'elevate']);
+    const away = (await call(api, 'lifeos_plan', { kind: 'training', gym: 'la_zona' })).structuredContent as { current: { version: number; summary: string[] } };
+    expect(away.current.version).toBe(viaje.version);
+    expect(away.current.summary[0]).toBe('Gimnasio: La Zona · mantenimiento (sin subir cargas ni escalones)');
+  });
+
+  it('periodo en otro gimnasio: la agenda usa su rutina y Claude lo registra solo si hay rutina', async () => {
+    const t = planRows.find((r) => r.kind === 'training')!;
+    const tc = t.content as { days: { weekday: number; name: string }[] };
+    const viaje = { ...t, id: 'zona', version: t.version + 1, content: { ...tc, gym: 'la_zona', days: tc.days.map((d) => ({ ...d, name: `${d.name} (La Zona)` })) } };
+    const periods = [{ id: 'p1', gym: 'la_zona', date_from: '2027-01-11', date_to: '2027-01-12', note: '' }];
+    const { api, calls } = withPlans({ plans: [...planRows, viaje], periods });
+    const a = (await call(api, 'lifeos_agenda', { date: '2027-01-11' })).structuredContent as { gym: string; items: { training?: { name: string } }[] };
+    expect(a.gym).toBe('la_zona');
+    expect(a.items.find((i) => i.training)?.training?.name).toMatch(/\(La Zona\)$/);
+    const b = (await call(api, 'lifeos_agenda', { date: '2027-01-13' })).structuredContent as { gym: string };
+    expect(b.gym).toBe('elevate');
+    const plan = (await call(api, 'lifeos_plan', { kind: 'training', date: '2027-01-10' })).structuredContent as { periods: { id: string }[] };
+    expect(plan.periods.map((p) => p.id)).toEqual(['p1']);
+    const bad = await call(api, 'lifeos_set_gym_period', { gym: 'otro', from: '2027-02-01', to: '2027-02-02' });
+    expect(bad.isError).toBe(true);
+    await call(api, 'lifeos_set_gym_period', { gym: 'la_zona', from: '2027-02-01', to: '2027-02-02', note: 'visita' });
+    await call(api, 'lifeos_set_gym_period', { delete_id: 'p1' });
+    expect(calls.map((c) => c.fn)).toEqual(['save_gym_period', 'delete_gym_period']);
+    expect(calls[0].args).toMatchObject({ p_gym: 'la_zona', p_from: '2027-02-01', p_to: '2027-02-02', p_note: 'visita', p_id: null });
   });
 
   it('despensa: lista de lo que falta y lo pedido cuenta como entrante', async () => {

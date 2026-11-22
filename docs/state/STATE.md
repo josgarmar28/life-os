@@ -14,7 +14,8 @@ Reside en Pully (Suiza). Gimnasio: Elevate Gym. iPhone. Reloj Amazfit (Zepp). B�
 - **Pendientes por diseño:** D-04 (n8n, fase P3) y D-14 (avisos, se prueba en P2). Ver `docs/adr/0001-decisiones-iniciales.md`.
 - **Aceptadas 18-oct (ADR-0002):** dashboard único con motor de áreas genérico, entrada de datos solo en el dashboard, conector MCP con OAuth de Supabase, plan gratuito con copia cifrada propia (sustituye D-02), arranque en enero sin histórico, "eliminar" = archivar.
 - **19-oct (ADR-0002 D-18 revisada, D-23, D-24):** acceso con contraseña y enlace por correo la primera vez; claves nuevas de Supabase; propuestas de Claude por nombre corto y con campos dentro.
-- **22-nov (ADR-0002 D-25 a D-28, a la espera de su aprobación del PR):** horario, rutina y menú como planes versionados; despensa estimada con el menú y lista de la compra; semana con teletrabajo y días fuera; modo entreno con sugerencia de progresión.
+- **22-nov (ADR-0002 D-25 a D-28, fusionado y desplegado):** horario, rutina y menú como planes versionados; despensa estimada con el menú y lista de la compra; semana con teletrabajo y días fuera; modo entreno con sugerencia de progresión.
+- **22-nov (ADR-0002 D-29, a la espera de su aprobación del PR):** rutina por gimnasio (La Zona en España, en mantenimiento) y periodos en otro gimnasio.
 
 ## Arquitectura vigente
 Ver SPEC-002 §3. Resumen: app de Claude + conector MCP propio (interactivo) y routines/`pg_cron` (programado), ambos sobre el mismo backend en Supabase con permisos por rol.
@@ -44,7 +45,8 @@ Ver SPEC-002 §3. Resumen: app de Claude + conector MCP propio (interactivo) y r
 - [ ] Verificación del esquema contra un Supabase real (ver runbook)
 - [x] Dashboard, motor de áreas, conector y despliegue gratuito escritos (PR #3, fusionado 19-oct)
 - [x] Acceso con contraseña, uso sin cobertura, vista Semana, revisión semanal de Claude y pruebas de principio a fin (PR del 19-oct)
-- [ ] Horario, modo entreno y compra (PR del 22-nov): revisión y aprobación del usuario
+- [x] Horario, modo entreno y compra (PR #5): fusionado y desplegado el 22-nov
+- [ ] Segundo gimnasio y periodos (PR del 22-nov): revisión y aprobación del usuario
 - [ ] Puesta en marcha por el usuario: `docs/runbooks/dashboard-puesta-en-marcha.md`
 - [ ] Arranque de uso en enero de 2027 (sistema vacío)
 - [ ] Más adelante: importación del CSV de Zepp a `health`

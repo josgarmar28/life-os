@@ -4,18 +4,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Entry, Field } from '@shared/model.ts';
 import { addDays, localDate } from '@shared/stats.ts';
-import { isoWeekday, localTime, WEEKDAY_NAME, WEEKDAY_SHORT, type Exercise, type TrainingDay, type TrainingPlan, type Weekday } from '@shared/plans.ts';
-import { exposuresFor, readiness, setsToday, suggest, type Exposure, type Readiness } from '@shared/progression.ts';
+import { gymForDate, HOME_GYM, isoWeekday, localTime, trainingGyms, WEEKDAY_NAME, WEEKDAY_SHORT, type Exercise, type TrainingDay, type TrainingMode, type TrainingPlan, type Weekday } from '@shared/plans.ts';
+import { exposuresFor, machineChanged, readiness, setsToday, suggest, type Exposure, type Readiness } from '@shared/progression.ts';
 import { loadEntries, useStructure } from '../data';
 import { Link, navigate } from '../router';
-import { explainError } from '../supabase';
+import { explainError, rpc } from '../supabase';
 import { send } from '../outbox';
-import { shortDate, usePlans, usePlansFor } from '../plans';
+import { shortDate, usePlans } from '../plans';
 
 interface SetDraft { kg: string; reps: string; rir: string; molestia: string; zona: string; done: boolean }
 interface LineDraft { key: string; name: string; machine: string; sets: SetDraft[] }
 interface Draft {
   date: string;
+  /** Gimnasio (slug); los borradores antiguos no lo tienen = el de casa. */
+  gym?: string;
   template: Weekday;
   startedAt: string | null;
   pre: (number | null)[];
@@ -45,14 +47,14 @@ function writeJson(key: string, v: unknown) {
   try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* sin almacenamiento */ }
 }
 
-function newDraft(date: string, day: TrainingDay, history: Entry[], level: Readiness): Draft {
+function newDraft(date: string, gym: string, mode: TrainingMode, day: TrainingDay, history: Entry[], level: Readiness): Draft {
   const lifts = day.exercises.filter((x) => x.type === 'compuesto' || x.type === 'aislamiento');
   return {
-    date, template: day.weekday, startedAt: null, pre: PRE.map(() => null), notes: '',
+    date, gym, template: day.weekday, startedAt: null, pre: PRE.map(() => null), notes: '',
     requestId: crypto.randomUUID(), cardioRequestId: crypto.randomUUID(),
     lines: lifts.map((ex, i) => {
       const hist = exposuresFor(ex, history);
-      const sug = suggest(ex, hist, level);
+      const sug = suggest(ex, hist, level, mode);
       const kg = sug.kg ?? hist[0]?.sets[0]?.kg ?? null;
       return {
         key: ex.key, name: ex.name, machine: ex.machine ?? '',
@@ -69,8 +71,6 @@ export function Training({ date: initial }: { date?: string }) {
   const p = usePlans();
   const today = localDate(new Date(), s.timezone);
   const date = initial ?? today;
-  const plans = usePlansFor(date);
-  const plan: TrainingPlan | null = plans.training?.content ?? null;
 
   const area = s.areas.find((a) => a.slug === 'entreno');
   const sesionForm = s.forms.find((f) => f.area_id === area?.id && f.slug === 'sesion');
@@ -91,6 +91,18 @@ export function Training({ date: initial }: { date?: string }) {
     if (d) writeJson(draftKey(d.date), d);
     else try { localStorage.removeItem(draftKey(date)); } catch { /* nada */ }
   };
+
+  // Un plan de entreno por gimnasio; cada uno con su historial (las líneas tienen claves propias).
+  // El del día sale de los periodos ("en España del X al Y"); se puede cambiar para una sesión suelta.
+  const gyms = useMemo(() => trainingGyms(p.plans, date), [p.plans, date]);
+  const [chosenGym, setChosenGym] = useState<string | null>(null);
+  const dayGym = gymForDate(p.periods, date);
+  const wanted = draft?.gym ?? chosenGym ?? dayGym;
+  const current = gyms.find((g) => g.gym === wanted) ?? gyms[0] ?? null;
+  const gym = current?.gym ?? HOME_GYM;
+  const plan: TrainingPlan | null = current?.plan.content ?? null;
+  const mode: TrainingMode = current?.mode ?? 'progresion';
+
   const weekday = isoWeekday(date);
   const template = draft?.template ?? (plan?.days.find((d) => d.weekday === weekday) ? weekday : null);
   const day = plan?.days.find((d) => d.weekday === template) ?? null;
@@ -107,7 +119,7 @@ export function Training({ date: initial }: { date?: string }) {
   if (!sesionForm) return <main><h1>Entreno</h1><p className="error">Falta el cuestionario Entrenamiento › Sesión de pesas.</p></main>;
 
   function start(d: TrainingDay) {
-    setDraft(newDraft(date, d, history, 'normal'));
+    setDraft(newDraft(date, gym, mode, d, history, 'normal'));
     setOpen(0);
   }
 
@@ -153,6 +165,7 @@ export function Training({ date: initial }: { date?: string }) {
       if (rows.length) {
         const values = pick(sesionForm!.id, {
           ...Object.fromEntries(PRE.map((q, i) => [q.key, draft.pre[i]])),
+          gimnasio: draft.gym ?? HOME_GYM,
           inicio: draft.startedAt ? localTime(new Date(draft.startedAt), s.timezone) : null,
           fin: date === today ? localTime(now, s.timezone) : null,
           series: rows,
@@ -196,7 +209,8 @@ export function Training({ date: initial }: { date?: string }) {
     <header className="page-head">
       <h1>Entreno</h1>
       <p className="muted cap">{shortDate(date, { weekday: 'long', day: 'numeric', month: 'long' })}{day ? ` · ${day.name}` : ''}</p>
-      {plans.training?.preview ? <p className="banner">Vista previa: esta rutina empieza el {shortDate(plans.training.row.valid_from, { day: 'numeric', month: 'long' })}.</p> : null}
+      {gyms.length > 1 && draft ? <p className="muted small">{current?.label}{mode === 'mantenimiento' ? ' · mantenimiento' : ''}</p> : null}
+      {current?.plan.preview ? <p className="banner">Vista previa: esta rutina empieza el {shortDate(current.plan.row.valid_from, { day: 'numeric', month: 'long' })}.</p> : null}
     </header>
   );
 
@@ -205,6 +219,19 @@ export function Training({ date: initial }: { date?: string }) {
     return (
       <main>
         {header}
+        {gyms.length > 1 ? (
+          <section className="card">
+            <h2>Gimnasio</h2>
+            <div className="chips" role="radiogroup" aria-label="Gimnasio">
+              {gyms.map((g) => (
+                <button key={g.gym} type="button" role="radio" aria-checked={g.gym === gym} className={g.gym === gym ? 'chip on' : 'chip'}
+                  onClick={() => setChosenGym(g.gym)}>{g.label}</button>
+              ))}
+            </div>
+            {gym !== dayGym ? <p className="muted small">Cambio solo para esta sesión: este día es de {gyms.find((g) => g.gym === dayGym)?.label ?? dayGym}.</p> : null}
+            {mode === 'mantenimiento' ? <p className="muted small">Mantenimiento: misma carga que la última vez aquí, RIR 1-2 y sin fallo. Su progreso va aparte y no decide escalones de {gyms.find((g) => g.gym === HOME_GYM)?.label ?? 'casa'}.</p> : null}
+          </section>
+        ) : null}
         {day && day.kind !== 'descanso' ? (
           <section className="card">
             <h2>{day.name}</h2>
@@ -222,6 +249,7 @@ export function Training({ date: initial }: { date?: string }) {
             <div className="chips">{others.map((d) => <button key={d.weekday} className="chip" onClick={() => start(d)}>{WEEKDAY_SHORT[d.weekday]} · {d.name}</button>)}</div>
           </details>
         ) : null}
+        {gyms.length > 1 ? <GymPeriods gyms={gyms.filter((g) => g.gym !== HOME_GYM)} today={today} /> : null}
         <p className="muted small"><Link to={`/entreno/${addDays(date, -1)}`}>← {WEEKDAY_NAME[isoWeekday(addDays(date, -1))]}</Link> · <Link to={`/entreno/${addDays(date, 1)}`}>{WEEKDAY_NAME[isoWeekday(addDays(date, 1))]} →</Link></p>
       </main>
     );
@@ -259,7 +287,7 @@ export function Training({ date: initial }: { date?: string }) {
         const ex = day?.exercises.find((x) => x.key === l.key);
         if (!ex) return null;
         const hist = exposuresFor(ex, history);
-        return <LineCard key={l.key} ex={ex} line={l} hist={hist} level={level.level} open={open === li} onOpen={() => setOpen(li)}
+        return <LineCard key={l.key} ex={ex} line={l} hist={hist} level={level.level} mode={mode} open={open === li} onOpen={() => setOpen(li)}
           onChange={(fn) => update((d) => fn(d.lines[li]))}
           onSetDone={(i) => {
             update((d) => {
@@ -303,16 +331,76 @@ export function Training({ date: initial }: { date?: string }) {
   );
 }
 
+/** Periodos en otro gimnasio: dentro de ellos, Entreno y Hoy usan la rutina de ese gimnasio. */
+function GymPeriods({ gyms, today }: { gyms: { gym: string; label: string }[]; today: string }) {
+  const p = usePlans();
+  const [form, setForm] = useState<{ gym: string; from: string; to: string; note: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const label = (g: string) => gyms.find((x) => x.gym === g)?.label ?? g;
+  const upcoming = p.periods.filter((x) => x.date_to >= today);
+  async function run(fn: () => Promise<unknown>) {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+      await p.reload();
+      setForm(null);
+    } catch (e) {
+      setError(explainError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="card">
+      <h2>En otro gimnasio</h2>
+      <p className="muted small">Marca de qué día a qué día estás fuera: esos días el entreno y Hoy salen de la rutina de ese gimnasio, cada día con su sesión.</p>
+      {upcoming.length ? (
+        <ul className="plan-list">
+          {upcoming.map((x) => (
+            <li key={x.id}>
+              <span className="grow">{label(x.gym)}: {shortDate(x.date_from, { day: 'numeric', month: 'short' })} – {shortDate(x.date_to, { day: 'numeric', month: 'short' })}{x.note ? <span className="muted small"> · {x.note}</span> : null}</span>
+              <button className="btn small ghost" disabled={busy} aria-label={`Borrar el periodo del ${x.date_from}`}
+                onClick={() => { if (confirm('¿Borrar este periodo?')) void run(() => rpc('delete_gym_period', { p_id: x.id })); }}>Borrar</button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {form ? (
+        <div className="stack">
+          {gyms.length > 1 ? (
+            <label>Gimnasio<select value={form.gym} onChange={(e) => setForm({ ...form, gym: e.target.value })}>{gyms.map((g) => <option key={g.gym} value={g.gym}>{g.label}</option>)}</select></label>
+          ) : null}
+          <div className="row gap">
+            <label className="grow">Desde<input type="date" value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value, to: form.to < e.target.value ? e.target.value : form.to })} /></label>
+            <label className="grow">Hasta<input type="date" value={form.to} min={form.from} onChange={(e) => setForm({ ...form, to: e.target.value })} /></label>
+          </div>
+          <label>Nota (opcional)<input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
+          <div className="row gap">
+            <button className="btn primary grow" disabled={busy || !form.from || !form.to}
+              onClick={() => void run(() => rpc('save_gym_period', { p_gym: form.gym, p_from: form.from, p_to: form.to, p_note: form.note }))}>{busy ? 'Guardando…' : 'Guardar periodo'}</button>
+            <button className="btn ghost" onClick={() => setForm(null)}>Cancelar</button>
+          </div>
+        </div>
+      ) : (
+        <button className="btn wide" onClick={() => setForm({ gym: gyms[0]?.gym ?? '', from: today, to: today, note: '' })}>Añadir periodo{gyms.length === 1 ? ` en ${gyms[0].label}` : ''}</button>
+      )}
+      {error ? <p className="error">{error}</p> : null}
+    </section>
+  );
+}
+
 function target(x: Exercise): string {
   if (x.type === 'cardio' || x.type === 'movilidad') return x.minutes ? `${x.minutes} min` : '';
   return `${x.sets} × ${x.reps?.[0]}-${x.reps?.[1]}${x.per_side ? ' por lado' : ''}${x.rir ? ` · RIR ${x.rir[0]}-${x.rir[1]}` : ''}`;
 }
 
-function LineCard({ ex, line, hist, level, open, onOpen, onChange, onSetDone }: {
-  ex: Exercise; line: LineDraft; hist: Exposure[]; level: Readiness; open: boolean; onOpen: () => void;
+function LineCard({ ex, line, hist, level, mode, open, onOpen, onChange, onSetDone }: {
+  ex: Exercise; line: LineDraft; hist: Exposure[]; level: Readiness; mode: TrainingMode; open: boolean; onOpen: () => void;
   onChange: (fn: (l: LineDraft) => void) => void; onSetDone: (i: number) => void;
 }) {
-  const sug = useMemo(() => suggest(ex, hist, level), [ex, hist, level]);
+  const sug = useMemo(() => suggest(ex, hist, level, mode), [ex, hist, level, mode]);
   const done = line.sets.filter((s) => s.done).length;
   const last = hist[0];
   return (
@@ -331,6 +419,7 @@ function LineCard({ ex, line, hist, level, open, onOpen, onChange, onSetDone }: 
             <span className="small">{sug.why}</span>
             {level !== 'normal' && ex.type === 'compuesto' ? <span className="small">Hoy RIR +1 en este compuesto.</span> : null}
           </div>
+          {machineChanged(line.machine, last) ? <p className="banner small">La última vez usaste otra máquina ({last!.machine}): las cargas no son comparables. Si es otra de verdad, calibra con RIR 3.</p> : null}
           {last ? <p className="muted small">Última vez ({last.date.slice(8)}/{last.date.slice(5, 7)}): {last.sets.map((s) => `${s.kg ?? '–'}×${s.reps ?? '–'}${s.rir !== null ? ` @${s.rir}` : ''}`).join(' · ')}</p> : null}
           {ex.notes ? <p className="muted small">{ex.notes}</p> : null}
           <div className="sets">

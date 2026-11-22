@@ -4,6 +4,7 @@ import { card, ensureOwner, login, setOwnerPassword, sql } from './helpers';
 
 // Planes sintéticos (los reales viven en la carpeta privada del dueño, nunca en el repositorio).
 const PLANS = fileURLToPath(new URL('./fixtures/planes-prueba.json', import.meta.url));
+const TRAVEL = fileURLToPath(new URL('./fixtures/planes-viaje.json', import.meta.url));
 
 test.describe.configure({ mode: 'serial' });
 
@@ -100,6 +101,58 @@ test('modo entreno: cuestionario, series con descanso y molestia, y la última v
   await page.getByRole('button', { name: 'J · Torso' }).click();
   await expect(page.getByText(/Última vez .*40×10 @2 · 40×9 @2/)).toBeVisible();
   await expect(page.locator('.suggestion').first()).toContainText('Molestia ámbar');
+});
+
+test('otro gimnasio: periodo de viaje, mantenimiento con historial aparte y excepción por sesión', async ({ page }) => {
+  await login(page);
+  await page.locator('nav.tabs').getByRole('link', { name: 'Más' }).click();
+  await page.getByRole('link', { name: /^Ajustes/ }).click();
+  const planes = card(page, 'Planes');
+  await planes.getByLabel('Importar archivo de planes (.json)').setInputFiles(TRAVEL);
+  await expect(planes.getByText('Gimnasio: La Zona · mantenimiento (sin subir cargas ni escalones)')).toBeVisible();
+  await planes.getByRole('button', { name: 'Guardar 1 plan' }).click();
+  expect(sql(`select string_agg(version || ':' || coalesce(content->>'gym', '-'), ',' order by version) from core.plan where kind = 'training'`)).toBe('1:-,2:la_zona');
+
+  // Sin periodo: el de casa. Al marcar "en La Zona" hoy, el entreno sale de su rutina.
+  await page.locator('nav.tabs').getByRole('link', { name: 'Entreno' }).click();
+  const gyms = page.getByRole('radiogroup', { name: 'Gimnasio' });
+  await expect(gyms.getByRole('radio', { name: 'Elevate' })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('button', { name: 'Añadir periodo en La Zona' }).click();
+  await page.getByRole('button', { name: 'Guardar periodo' }).click();
+  await expect(gyms.getByRole('radio', { name: 'La Zona' })).toHaveAttribute('aria-checked', 'true');
+  await expect(card(page, 'En otro gimnasio')).toContainText('La Zona:');
+  expect(sql(`select gym || ':' || (date_to - date_from) from core.gym_period`)).toBe('la_zona:0');
+
+  await page.getByText('Hacer otra sesión (cambio de día)').click();
+  await page.getByRole('button', { name: 'L · Torso (La Zona)' }).click();
+  await expect(page.getByText('Primera vez aquí: calibra con RIR 3')).toBeVisible(); // la línea de casa no cuenta aquí
+  await page.getByLabel('Serie 1 kg').fill('30');
+  await page.getByLabel('Serie 1 reps').fill('8');
+  await page.getByLabel('Serie 1 RIR').fill('3');
+  await page.getByRole('button', { name: 'Serie 1 hecha' }).click();
+  await page.getByRole('button', { name: 'Saltar' }).click();
+  await page.getByRole('button', { name: 'Terminar y guardar' }).click();
+  await expect(page).toHaveURL(/\/a\/entreno$/);
+  expect(sql(`select (data->>'gimnasio') || ':' || (data->'series'->0->>'linea') from api.entries e join core.form f on f.id = e.form_id where f.slug = 'sesion' and e.note like '%La Zona%'`))
+    .toBe('la_zona:es_press_pecho');
+
+  // Siguiente vez allí: mantiene la carga; con otra máquina, avisa.
+  await page.goto('/entreno');
+  await page.getByText('Hacer otra sesión (cambio de día)').click();
+  await page.getByRole('button', { name: 'J · Torso (La Zona)' }).click();
+  await expect(page.locator('.suggestion').first()).toContainText('Mantén 30 kg');
+  await page.getByLabel('Máquina').first().fill('Otra prensa');
+  await expect(page.getByText(/La última vez usaste otra máquina \(Máquina de viaje\)/)).toBeVisible();
+  page.once('dialog', (d) => void d.accept());
+  await page.getByRole('button', { name: 'Descartar' }).click();
+
+  // Excepción para una sesión suelta: el día sigue siendo de La Zona.
+  await gyms.getByRole('radio', { name: 'Elevate' }).click();
+  await expect(page.getByText('Cambio solo para esta sesión: este día es de La Zona.')).toBeVisible();
+  page.once('dialog', (d) => void d.accept());
+  await card(page, 'En otro gimnasio').getByRole('button', { name: /^Borrar el periodo/ }).click();
+  await expect(card(page, 'En otro gimnasio')).not.toContainText('La Zona:');
+  expect(sql(`select count(*) from core.gym_period`)).toBe('0');
 });
 
 test('compra: contar la despensa, lista de lo que falta, pedir y recibir', async ({ page }) => {
