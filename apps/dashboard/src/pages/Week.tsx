@@ -23,10 +23,14 @@ function delta(ind: WeekIndicator) {
   return <span className="muted small">{d > 0 ? '▲' : '▼'} {ind.field.type === 'duration' ? shown.replace('-', '') : shown} vs. anterior</span>;
 }
 
+const hasData = (ind: { days: (number | null)[] }) => ind.days.some((v) => v !== null);
+
 export function Week({ date }: { date?: string }) {
   const s = useStructure();
   const today = localDate(new Date(), s.timezone);
-  const { start, end, fetchFrom } = weekRange(date ?? today);
+  // Lunes y martes, la semana que importa es la que acaba de cerrar (la revisión del domingo).
+  const dow = (new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7;
+  const { start, end, fetchFrom } = weekRange(date ?? (dow < 2 ? addDays(today, -7) : today));
   const active = s.forms.filter((f) => f.status === 'active');
   const entries = useAsync(() => loadEntries({ formIds: active.map((f) => f.id), from: fetchFrom, to: end }), [start, active.length]);
   const w = entries.data ? summarizeWeek(s.areas, s.forms, s.fields, entries.data, start, today) : null;
@@ -54,7 +58,7 @@ export function Week({ date }: { date?: string }) {
                     <span key={d} role="columnheader" className={d === today ? 'today' : ''}>{DOW[i]}<small>{Number(d.slice(8))}</small></span>
                   ))}
                 </div>
-                {w.indicators.map((ind) => (
+                {w.indicators.filter(hasData).map((ind) => (
                   <div key={ind.field.id} className="wblock" role="rowgroup">
                     <div className="wlabel">
                       <span>{ind.area.icon} {ind.field.label}{ind.field.unit && ind.field.type !== 'duration' ? ` (${ind.field.unit})` : ''}</span>
@@ -66,6 +70,11 @@ export function Week({ date }: { date?: string }) {
                     {delta(ind) ? <div className="wdelta">{delta(ind)}</div> : null}
                   </div>
                 ))}
+                {w.indicators.some((ind) => !hasData(ind)) ? (
+                  <p className="muted small week-empty">
+                    Sin datos {isCurrent ? 'aún ' : ''}esta semana: {w.indicators.filter((ind) => !hasData(ind)).map((ind) => ind.field.label).join(', ')}.
+                  </p>
+                ) : null}
               </div>
             ) : <p className="muted small">Marca campos numéricos como "Mostrar en la vista general" para verlos aquí.</p>}
           </section>

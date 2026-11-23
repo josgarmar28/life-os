@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { addDays, dueToday, formatValue, localDate, summarizeForm, formatNumber, weekStart } from '@shared/stats.ts';
+import { addDays, dueToday, formatDelta, formatStat, formatValue, localDate, summarizeForm, weekStart } from '@shared/stats.ts';
 import { CADENCE_LABEL } from '@shared/model.ts';
 import { loadEntries, useAsync, useStructure } from '../data';
 import { Link } from '../router';
@@ -101,7 +101,7 @@ export function Overview() {
               <Link key={t.key} to={`/a/${t.area.slug}`} className="tile">
                 <span className="muted small">{t.area.icon} {t.label}</span>
                 <span className="tile-value">{formatValue(t.sum.field, t.sum.last!.value)}</span>
-                <span className="muted small">{t.sum.avg7 !== null ? `media 7 d: ${formatNumber(t.sum.avg7, 1)}` : 'sin media aún'}{t.sum.delta7 !== null && Math.abs(t.sum.delta7) >= 0.05 ? ` (${t.sum.delta7 > 0 ? '+' : ''}${formatNumber(t.sum.delta7, 1)})` : ''}</span>
+                <span className="muted small">{t.sum.avg7 !== null ? `media 7 d: ${formatStat(t.sum.field, t.sum.avg7)}` : 'sin media aún'}{t.sum.delta7 !== null && Math.abs(t.sum.delta7) >= 0.05 ? ` (${formatDelta(t.sum.field, t.sum.delta7)})` : ''}</span>
                 <Sparkline series={t.sum.series} today={today} height={28} />
               </Link>
             ))}
@@ -155,8 +155,8 @@ export function AreaCards() {
                           <span className="muted small">{x.field.label}</span>
                           <span className="metric-value">{x.last ? formatValue(x.field, x.last.value) : '—'}</span>
                           <span className="muted small">
-                            {x.avg7 !== null ? `media 7 d: ${formatNumber(x.avg7, 1)}${x.n7 < 4 ? ` (${x.n7} d)` : ''}` : 'sin datos esta semana'}
-                            {x.delta7 !== null && Math.abs(x.delta7) >= 0.05 ? ` · ${x.delta7 > 0 ? '+' : ''}${formatNumber(x.delta7, 1)} vs. semana anterior` : ''}
+                            {x.avg7 !== null ? `media 7 d: ${formatStat(x.field, x.avg7)}${x.n7 < 4 ? ` (${x.n7} d)` : ''}` : 'sin datos esta semana'}
+                            {x.delta7 !== null && Math.abs(x.delta7) >= 0.05 ? ` · ${formatDelta(x.field, x.delta7)} vs. semana anterior` : ''}
                           </span>
                         </div>
                         <Sparkline series={x.series} today={today} />

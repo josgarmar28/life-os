@@ -302,3 +302,31 @@ html { -webkit-tap-highlight-color: transparent; }
 .page-head h1 { letter-spacing: -0.01em; }
 @media (prefers-reduced-motion: reduce) { .btn, .chip, .tile, .todo-item, .set-row { transition: none; } .btn:active:not(:disabled), .chip:active, .tile:active, .set-row:active { transform: none; } }
 .field-help { margin: 2px 0 6px; }
+
+/* Historial y tendencias por área */
+.page-head + .subtabs { margin: 0 0 12px; }
+.subtabs button { flex: 1; text-align: center; padding: 8px 4px; border-radius: 9px; color: var(--muted); font-weight: 600; background: none; border: 0; font: inherit; min-height: 40px; cursor: pointer; }
+.subtabs button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+.trends { margin: 8px 0 4px; }
+.trend-block { margin: 8px 0 4px; }
+.trend-block figcaption { margin-bottom: 2px; }
+.trend { display: block; width: 100%; height: auto; color: var(--accent); }
+.trend-grid { stroke: var(--border); stroke-width: 1; }
+.trend-axis { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.trend-dot { fill: currentColor; opacity: 0.45; }
+.trend-line { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linejoin: round; stroke-linecap: round; }
+.trend-bar { fill: currentColor; opacity: 0.8; }
+.legend { display: flex; align-items: center; gap: 6px; margin: 2px 0 0; }
+.legend-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); opacity: 0.45; display: inline-block; }
+.legend-line { width: 16px; height: 2px; background: var(--accent); display: inline-block; }
+.entry { padding: 0; }
+.entry summary { display: flex; align-items: center; gap: 10px; min-height: 48px; cursor: pointer; list-style: none; }
+.entry summary::-webkit-details-marker { display: none; }
+.entry-day { flex: none; width: 5.6em; font-weight: 600; font-variant-numeric: tabular-nums; text-transform: capitalize; }
+.entry-sum { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.entry details[open] .chev { transform: rotate(90deg); }
+.entry-detail { padding: 0 0 8px; }
+.entry-actions { display: flex; gap: 8px; padding: 0 0 12px; }
+.sets { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 8px; }
+.sets .block { display: block; font-variant-numeric: tabular-nums; }
+.btn.ghost.danger { background: none; color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }

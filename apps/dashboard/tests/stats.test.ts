@@ -105,3 +105,14 @@ describe('qué toca hoy en Hoy', () => {
     expect(dueToday('free', { done: null, label: '', last: null }, '2027-01-17')).toBe(false);
   });
 });
+
+describe('formatStat / formatDelta', () => {
+  it('muestra duraciones en horas y minutos', async () => {
+    const { formatStat, formatDelta, formatDuration } = await import('@shared/stats.ts');
+    expect(formatStat({ type: 'duration' }, 460.2)).toBe('7 h 40');
+    expect(formatDelta({ type: 'duration' }, 3.6)).toBe('+4 min');
+    expect(formatDelta({ type: 'number' }, -0.4)).toBe('−0,4');
+    expect(formatStat({ type: 'scale' }, 3.33)).toBe('3,3');
+    expect(formatDuration(59.7)).toBe('1 h 00');
+  });
+});

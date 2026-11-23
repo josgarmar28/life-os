@@ -69,6 +69,8 @@ test('registro de mañana: validar, guardar, corregir y borrar', async ({ page }
   await expect(manana.locator('li.entry')).toContainText('Calidad del sueño');
   await expect(manana.locator('li.entry')).toContainText('Ruido');
 
+  await expect(manana.locator('li.entry summary')).toContainText('Calidad 4');
+  await manana.locator('li.entry summary').click();
   await manana.getByRole('link', { name: 'Editar' }).click();
   await expect(page.getByText('Estás corrigiendo un registro')).toBeVisible();
   await expect(page.getByRole('radiogroup', { name: 'Calidad del sueño' }).getByRole('radio', { name: '4' })).toHaveAttribute('aria-checked', 'true');
@@ -80,6 +82,7 @@ test('registro de mañana: validar, guardar, corregir y borrar', async ({ page }
   expect(sql(`select data->>'calidad' from api.entries e join core.form f on f.id = e.form_id where f.slug = 'manana'`)).toBe('5');
 
   page.once('dialog', (d) => void d.accept());
+  await manana.locator('li.entry summary').click();
   await manana.getByRole('button', { name: 'Borrar' }).click();
   await expect(manana.locator('li.entry')).toHaveCount(0);
   expect(sql(`select count(*) from core.entry e join core.form f on f.id = e.form_id where f.slug = 'manana'`)).toBe('3');
@@ -101,8 +104,12 @@ test('sesión de pesas con series en tabla', async ({ page }) => {
   await page.getByRole('button', { name: 'Guardar' }).click();
   await expect(page).toHaveURL(/\/a\/entreno$/);
   const sesion = card(page, 'Sesión de pesas');
-  await expect(sesion.locator('ul.rows li')).toHaveCount(2);
-  await expect(sesion.locator('ul.rows li').nth(1)).toContainText('Reps: 9');
+  await expect(sesion.locator('li.entry summary')).toContainText('1 ejercicio · 2 series');
+  await sesion.locator('li.entry summary').click();
+  await expect(sesion.locator('ul.sets li')).toHaveCount(1);
+  await expect(sesion.locator('ul.sets li')).toContainText('Prensa');
+  await expect(sesion.locator('ul.sets li')).toContainText('140 kg × 10, 9 · RIR 2-2');
+  await expect(sesion.getByRole('img', { name: /Series por semana/ })).toBeVisible();
   expect(sql(`select jsonb_array_length(data->'series') from api.entries e join core.form f on f.id = e.form_id where f.slug = 'sesion'`)).toBe('2');
 
   // Siguiente sesión: partir de las series de la última vez y ajustar.
@@ -207,11 +214,14 @@ test('semana: indicadores de todas las áreas día a día', async ({ page }) => 
   await page.locator('nav.tabs').getByRole('link', { name: 'Más' }).click();
   await page.getByRole('link', { name: /^Semana/ }).click();
   await expect(page.getByRole('heading', { name: 'Semana', exact: true })).toBeVisible();
+  // Lunes y martes abre la semana anterior; aquí miramos la que contiene hoy.
+  await page.goto(`/semana/${new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Zurich' })}`);
   const grid = page.getByRole('table', { name: 'Indicadores por día' });
   await expect(grid).toBeVisible();
   await expect(grid.locator('.wblock').filter({ hasText: 'Peso' })).toContainText('73,4');
   await expect(card(page, 'Registros de la semana')).toContainText('Sesión de pesas');
   await page.getByRole('link', { name: 'Semana anterior' }).click();
   await expect(page).toHaveURL(/\/semana\/\d{4}-\d{2}-\d{2}$/);
-  await expect(grid.locator('.wblock').filter({ hasText: 'Peso' })).not.toContainText('73,4');
+  await expect(grid.locator('.wblock').filter({ hasText: 'Peso' })).toHaveCount(0);
+  await expect(grid.locator('.week-empty')).toContainText('Peso');
 });
