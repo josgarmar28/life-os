@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { configured, rpc, supabase } from './supabase';
-import { StructureProvider, useStructure } from './data';
+import { clearLocalData, StructureProvider, useStructure } from './data';
 import { Toaster } from './toast';
 import { Link, match, useLocation } from './router';
 import { flushOutbox, isNetworkError, readOutbox } from './outbox';
@@ -19,6 +19,7 @@ import { Training } from './pages/Training';
 import { Shopping } from './pages/Shopping';
 import { More } from './pages/More';
 import { PlansProvider } from './plans';
+import { PageSkeleton } from './components/Skeleton';
 
 const OWNER_KEY = 'lifeos.owner';
 const readKey = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -30,7 +31,10 @@ export function App() {
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    const { data } = supabase.auth.onAuthStateChange((e, s) => {
+      if (e === 'SIGNED_OUT') clearLocalData();
+      setSession(s);
+    });
     return () => data.subscription.unsubscribe();
   }, []);
 
@@ -38,6 +42,9 @@ export function App() {
     if (!session) return setOwner(null);
     // Sin red (gimnasio sin cobertura) se usa la última comprobación de este dispositivo para poder registrar.
     const uid = session.user.id;
+    // Si este teléfono ya comprobó que es la cuenta dueña, abre sin esperar; la comprobación sigue detrás
+    // (los datos los protege la base de datos igualmente).
+    if (readKey(OWNER_KEY) === uid) setOwner(true);
     void rpc<{ is_owner: boolean }>('whoami', {})
       .then((w) => {
         setOwner(w.is_owner);
@@ -122,7 +129,7 @@ function Shell({ path }: { path: string }) {
       {queued ? <Link to="/ajustes" className="banner top">{queued} {queued === 1 ? 'registro pendiente' : 'registros pendientes'} de enviar</Link> : null}
       {s.error === 'offline' ? <p className="banner top">Sin conexión: puedes registrar; se enviará al volver la red.</p>
         : s.error ? <p className="error pad">No se pudo cargar la estructura: {s.error}</p> : null}
-      {s.loading ? <p className="muted pad">Cargando…</p> : page}
+      {s.loading ? <PageSkeleton /> : page}
       <Toaster />
       <nav className="tabs">
         {tab('/', 'Hoy')}

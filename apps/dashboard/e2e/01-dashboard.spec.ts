@@ -188,13 +188,19 @@ test('gestión: crear área, cuestionario y campo; registrar; archivar y borrar 
 
 test('sin cobertura: la app abre, registra en el teléfono y lo envía al volver la red', async ({ page, context }) => {
   await login(page);
-  // Con red: la app guarda su carcasa (service worker) y la estructura de los cuestionarios.
+  // Con red: la app guarda su carcasa (service worker), la estructura y los últimos datos de Hoy.
+  await expect(page.getByRole('heading', { name: 'Por registrar' })).toBeVisible();
   await page.goto('/a/cuerpo');
   await page.waitForFunction(() => navigator.serviceWorker?.controller != null, null, { timeout: 15_000 });
 
   await context.setOffline(true);
   await page.reload(); // abrir la app sin red
   await expect(page.getByText('Sin conexión: puedes registrar')).toBeVisible();
+  // Hoy abre con los últimos datos guardados en el teléfono, sin error.
+  await page.locator('nav.tabs').getByRole('link', { name: 'Hoy' }).click();
+  await expect(page.getByRole('heading', { name: 'Por registrar' })).toBeVisible();
+  await expect(page.getByText('No se pudieron cargar los datos')).toHaveCount(0);
+  await page.goto('/a/cuerpo');
   await page.getByRole('link', { name: 'Registrar' }).first().click();
   await expect(page.getByRole('heading', { name: 'Peso' })).toBeVisible();
   page.once('dialog', (d) => void d.accept());

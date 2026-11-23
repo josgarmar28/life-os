@@ -4,6 +4,7 @@ import { localDate } from '@shared/stats.ts';
 import { formatDuration, formatNumber, addDays } from '@shared/stats.ts';
 import { summarizeWeek, weekRange, type WeekIndicator } from '@shared/week.ts';
 import { loadEntries, useAsync, useStructure } from '../data';
+import { Skeleton } from '../components/Skeleton';
 import { Link } from '../router';
 
 const DOW = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
@@ -32,7 +33,7 @@ export function Week({ date }: { date?: string }) {
   const dow = (new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7;
   const { start, end, fetchFrom } = weekRange(date ?? (dow < 2 ? addDays(today, -7) : today));
   const active = s.forms.filter((f) => f.status === 'active');
-  const entries = useAsync(() => loadEntries({ formIds: active.map((f) => f.id), from: fetchFrom, to: end }), [start, active.length]);
+  const entries = useAsync(() => loadEntries({ formIds: active.map((f) => f.id), from: fetchFrom, to: end }), [start, active.length], `semana:${start}:${today}`);
   const w = entries.data ? summarizeWeek(s.areas, s.forms, s.fields, entries.data, start, today) : null;
   const isCurrent = start === weekRange(today).start;
 
@@ -47,7 +48,7 @@ export function Week({ date }: { date?: string }) {
         </div>
       </header>
       {entries.error ? <p className="error">{entries.error}</p> : null}
-      {!w ? <p className="muted">Cargando…</p> : (
+      {!w ? (entries.loading ? <><Skeleton rows={5} /><Skeleton rows={3} /></> : null) : (
         <>
           <section className="card">
             <h2>Día a día</h2>

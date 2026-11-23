@@ -3,6 +3,7 @@ import { addDays, fieldSeries, formatStat, formatValue, localDate, weekStart } f
 import type { Entry, Field } from '@shared/model.ts';
 import { CADENCE_LABEL } from '@shared/model.ts';
 import { loadEntries, useAsync, useStructure } from '../data';
+import { Skeleton } from '../components/Skeleton';
 import { Link } from '../router';
 import { send } from '../outbox';
 import { explainError } from '../supabase';
@@ -24,6 +25,7 @@ export function AreaPage({ slug }: { slug: string }) {
   const entries = useAsync(
     () => loadEntries({ formIds: forms.map((f) => f.id), from: addDays(today, -(days - 1)), to: today }),
     [area?.id, forms.length, days, today],
+    `area:${area?.id}:${days}:${today}`,
   );
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -63,6 +65,7 @@ export function AreaPage({ slug }: { slug: string }) {
               <Link to={`/a/${area.slug}/${f.slug}/nuevo`} className="btn small primary">Registrar</Link>
             </div>
             <p className="muted small">{CADENCE_LABEL[f.cadence]}{f.description ? ` · ${f.description}` : ''}</p>
+            {!entries.data && entries.loading ? <Skeleton rows={3} title={false} /> : <>
             <Trends fields={fields} entries={own} from={addDays(today, -(days - 1))} to={today} />
             {own.length ? (
               <ul className="entries">
@@ -84,6 +87,7 @@ export function AreaPage({ slug }: { slug: string }) {
                 ))}
               </ul>
             ) : <p className="muted small">Sin registros en los últimos {days} días.</p>}
+            </>}
           </section>
         );
       })}

@@ -99,18 +99,64 @@ export async function loadProposals(): Promise<Proposal[]> {
   return fetchAll<Proposal>((a, b) => api().from('proposals').select('*').order('created_at', { ascending: false }).range(a, b), 200, 400);
 }
 
-/** Hook genérico de carga asíncrona con recarga. */
-export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]) {
-  const [state, setState] = useState<{ data: T | null; error: string | null; loading: boolean }>({ data: null, error: null, loading: true });
+// Últimos datos cargados, guardados en este teléfono para abrir al instante (y sin cobertura) mientras
+// llegan los nuevos. Solo en este dispositivo, y se borran al cerrar sesión.
+const DATA_PREFIX = 'lifeos.cache.';
+
+function readData<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(DATA_PREFIX + key);
+    return raw ? (JSON.parse(raw) as { data: T }).data : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeData(key: string, data: unknown) {
+  try { localStorage.setItem(DATA_PREFIX + key, JSON.stringify({ data })); } catch { /* sin espacio: se cargará de la red */ }
+}
+
+/** Otras copias con datos personales: planes y últimas sesiones de pesas. La cola sin enviar no se toca. */
+const PERSONAL_KEYS = ['lifeos.plans', 'lifeos.workouts'];
+
+/** Borra los datos guardados en el teléfono (al cerrar sesión). */
+export function clearLocalData() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith(DATA_PREFIX) || PERSONAL_KEYS.includes(k))) localStorage.removeItem(k);
+    }
+  } catch { /* nada que borrar */ }
+}
+
+/**
+ * Hook genérico de carga asíncrona con recarga. Con `cacheKey` (que incluya todo lo que cambia la
+ * consulta) la pantalla abre con los últimos datos guardados y los sustituye al llegar los nuevos.
+ */
+export function useAsync<T>(fn: () => Promise<T>, deps: unknown[], cacheKey?: string) {
+  const [state, setState] = useState<{ data: T | null; error: string | null; loading: boolean }>(
+    () => ({ data: cacheKey ? readData<T>(cacheKey) : null, error: null, loading: true }),
+  );
   const run = useCallback(async () => {
     setState((s) => ({ ...s, loading: true }));
     try {
-      setState({ data: await fn(), error: null, loading: false });
+      const data = await fn();
+      if (cacheKey) writeData(cacheKey, data);
+      setState({ data, error: null, loading: false });
     } catch (e) {
-      setState({ data: null, error: e instanceof Error ? e.message : String(e), loading: false });
+      // Sin red y con datos guardados: se siguen viendo los guardados (el aviso de sin conexión ya sale arriba).
+      setState((s) => (s.data !== null && isNetworkError(e)
+        ? { ...s, loading: false }
+        : { data: null, error: e instanceof Error ? e.message : String(e), loading: false }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [...deps, cacheKey]);
+  // Al cambiar la consulta (otro día, otra área), se enseña lo guardado para la nueva.
+  const [lastKey, setLastKey] = useState(cacheKey);
+  if (cacheKey !== lastKey) {
+    setLastKey(cacheKey);
+    setState({ data: cacheKey ? readData<T>(cacheKey) : null, error: null, loading: true });
+  }
   useEffect(() => {
     void run();
   }, [run]);
