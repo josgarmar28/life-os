@@ -100,13 +100,42 @@ function ListTab({ meals, today, preview }: { meals: MealsPlan; today: string; p
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [reqId] = useState(() => crypto.randomUUID());
+  // "Ya en el carrito de Migros": se tacha con un toque mientras pasas la lista a la app de la tienda.
+  const cartKey = `lifeos.cart.${delivery}`;
+  const [inCart, setInCart] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem(cartKey) ?? '[]') as string[]; } catch { return []; } });
+  const toggleCart = (k: string) => {
+    const next = inCart.includes(k) ? inCart.filter((x) => x !== k) : [...inCart, k];
+    setInCart(next);
+    try { localStorage.setItem(cartKey, JSON.stringify(next)); } catch { /* sin almacenamiento */ }
+  };
 
   const packs = (l: NeedLine) => edits[l.product.key] ?? l.packages;
   const chosen = list.lines.filter((l) => packs(l) > 0);
   const total = Math.round(chosen.reduce((a, l) => a + packs(l) * (l.product.price ?? 0), 0) * 100) / 100;
   const unknown = list.lines.filter((l) => l.unknown).length;
   const shown = [...list.lines].sort((a, b) => Number(packs(b) > 0) - Number(packs(a) > 0) || a.product.name.localeCompare(b.product.name, 'es'));
+  const groups = STORAGES.map((st) => ({ st, lines: shown.filter((l) => l.product.storage === st && packs(l) > 0) })).filter((g) => g.lines.length);
+  const notNeeded = shown.filter((l) => packs(l) <= 0);
   const pendingOrders = p.orders.filter((o) => o.status === 'ordered' && o.delivery_date <= delivery);
+
+  const row = (l: NeedLine) => {
+    const done = inCart.includes(l.product.key);
+    return (
+      <li key={l.product.key} className={packs(l) > 0 ? (done ? 'in-cart' : '') : 'dim'}>
+        <button type="button" className="cart-check" role="checkbox" aria-checked={done} aria-label={`${l.product.name} en el carrito`} onClick={() => toggleCart(l.product.key)}>
+          <span aria-hidden="true">{done ? '✓' : ''}</span>
+        </button>
+        <span className="shop-name">{l.product.name}</span>
+        <span className="shop-sub muted small">{l.unknown ? 'sin contar · ' : ''}faltan {formatQty(l.product, l.need)}</span>
+        <span className="stepper" role="group" aria-label={l.product.name}>
+          <button className="btn small ghost" aria-label={`Menos ${l.product.name}`} disabled={packs(l) <= 0} onClick={() => setEdits({ ...edits, [l.product.key]: Math.max(0, packs(l) - 1) })}>−</button>
+          <span className="qty">{packs(l)}</span>
+          <button className="btn small ghost" aria-label={`Más ${l.product.name}`} onClick={() => setEdits({ ...edits, [l.product.key]: packs(l) + 1 })}>+</button>
+        </span>
+        <span className="price small">{l.product.price !== undefined ? fmtChf(packs(l) * l.product.price) : ''}</span>
+      </li>
+    );
+  };
 
   async function order() {
     setBusy(true);
@@ -141,24 +170,18 @@ function ListTab({ meals, today, preview }: { meals: MealsPlan; today: string; p
 
       <section className="card">
         <div className="card-head"><h2>Falta</h2><span className="muted small">{chosen.length} de {list.lines.length}</span></div>
-        <ul className="list shop-list">
-          {shown.map((l) => (
-            <li key={l.product.key} className={packs(l) > 0 ? '' : 'dim'}>
-              <span className="grow">
-                {l.product.name}
-                <span className="muted small block">
-                  {l.unknown ? 'sin contar' : `quedarán ${formatQty(l.product, l.atDelivery)}`} · hacen falta {formatQty(l.product, l.need)}
-                </span>
-              </span>
-              <span className="stepper" role="group" aria-label={l.product.name}>
-                <button className="btn small ghost" aria-label={`Menos ${l.product.name}`} disabled={packs(l) <= 0} onClick={() => setEdits({ ...edits, [l.product.key]: Math.max(0, packs(l) - 1) })}>−</button>
-                <span className="qty">{packs(l)}</span>
-                <button className="btn small ghost" aria-label={`Más ${l.product.name}`} onClick={() => setEdits({ ...edits, [l.product.key]: packs(l) + 1 })}>+</button>
-              </span>
-              <span className="price small">{l.product.price !== undefined ? fmtChf(packs(l) * l.product.price) : ''}</span>
-            </li>
-          ))}
-        </ul>
+        {groups.map((g) => (
+          <div key={g.st} className="shop-group">
+            <h3>{STORAGE_LABEL[g.st]} <span className="muted small">({g.lines.length})</span></h3>
+            <ul className="list shop-list">{g.lines.map(row)}</ul>
+          </div>
+        ))}
+        {notNeeded.length ? (
+          <details className="later">
+            <summary className="muted small">No hace falta esta vez ({notNeeded.length})</summary>
+            <ul className="list shop-list">{notNeeded.map(row)}</ul>
+          </details>
+        ) : null}
         <p className="total"><span className="grow">Total estimado</span><strong>{fmtChf(total)}</strong></p>
         {meals.min_order && total < meals.min_order ? <p className="banner">Por debajo del mínimo de {fmtChf(meals.min_order)} de la tienda: faltan {fmtChf(meals.min_order - total)}. Puedes adelantar básicos de despensa.</p> : null}
         <div className="row gap">

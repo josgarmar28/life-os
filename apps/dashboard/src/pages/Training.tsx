@@ -2,10 +2,11 @@
 // progresión, el descanso y el registro de molestias. Funciona sin cobertura: el borrador se guarda
 // en el teléfono a cada toque y, al terminar, el registro va a la cola si no hay red.
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { beep, unlockAudio, useFocusMode, useTick, useWakeLock } from '../workout';
 import type { Entry, Field } from '@shared/model.ts';
 import { addDays, localDate } from '@shared/stats.ts';
 import { gymForDate, HOME_GYM, isoWeekday, localTime, trainingGyms, WEEKDAY_NAME, WEEKDAY_SHORT, type Exercise, type TrainingDay, type TrainingMode, type TrainingPlan, type Weekday } from '@shared/plans.ts';
-import { exposuresFor, machineChanged, readiness, setsToday, suggest, type Exposure, type Readiness } from '@shared/progression.ts';
+import { exposuresFor, kgStep, machineChanged, machineOptions, readiness, setsToday, suggest, type Exposure, type Readiness } from '@shared/progression.ts';
 import { loadEntries, useStructure } from '../data';
 import { Link, navigate } from '../router';
 import { explainError, rpc } from '../supabase';
@@ -38,6 +39,16 @@ const PRE = [
 const HISTORY_KEY = 'lifeos.workouts';
 const draftKey = (date: string) => `lifeos.workout.${date}`;
 const num = (s: string) => { const t = s.trim().replace(',', '.'); if (!t) return null; const n = Number(t); return Number.isFinite(n) ? n : NaN; };
+const fmtKg = (x: number) => String(Math.round(x * 100) / 100).replace('.', ',');
+/** Primera serie sin hacer de la sesión (línea y serie), o null si está todo hecho. */
+function firstPending(d: Draft | null): { line: number; set: number } | null {
+  if (!d) return null;
+  for (let li = 0; li < d.lines.length; li++) {
+    const si = d.lines[li].sets.findIndex((x) => !x.done);
+    if (si >= 0) return { line: li, set: si };
+  }
+  return null;
+}
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, s % 60)).padStart(2, '0')}`;
 
 function readJson<T>(key: string): T | null {
@@ -56,9 +67,12 @@ function newDraft(date: string, gym: string, mode: TrainingMode, day: TrainingDa
       const hist = exposuresFor(ex, history);
       const sug = suggest(ex, hist, level, mode);
       const kg = sug.kg ?? hist[0]?.sets[0]?.kg ?? null;
+      // Serie en un toque: carga sugerida y, si toca repetir o mantener, las reps y el RIR de la última vez.
+      const same = sug.action === 'repetir' || sug.action === 'mantener';
+      const prev = (j: number, k: 'reps' | 'rir') => { const v = same ? hist[0]?.sets[j]?.[k] : null; return v === null || v === undefined ? '' : String(v); };
       return {
-        key: ex.key, name: ex.name, machine: ex.machine ?? '',
-        sets: Array.from({ length: setsToday(ex, level, i === 0) }, () => ({ kg: kg !== null ? String(kg).replace('.', ',') : '', reps: '', rir: '', molestia: '', zona: '', done: false })),
+        key: ex.key, name: ex.name, machine: machineOptions(ex.machine)[0] ?? '',
+        sets: Array.from({ length: setsToday(ex, level, i === 0) }, (_, j) => ({ kg: kg !== null ? fmtKg(kg) : '', reps: prev(j, 'reps'), rir: prev(j, 'rir'), molestia: '', zona: '', done: false })),
       };
     }),
     cardio: Object.fromEntries(day.exercises.filter((x) => x.type === 'cardio' || x.type === 'movilidad')
@@ -110,8 +124,25 @@ export function Training({ date: initial }: { date?: string }) {
   const level = draft ? readiness(draft.pre, draft.pre[2]) : { level: 'normal' as Readiness, text: '' };
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [open, setOpen] = useState(0);
+  const [open, setOpen] = useState(() => firstPending(readJson<Draft>(draftKey(date)))?.line ?? 0);
+  /** Serie que se corrige tocando su fila; si no, se edita la primera sin hacer de la línea abierta. */
+  const [editing, setEditing] = useState<number | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
+  const [preOpen, setPreOpen] = useState(false);
   const timer = useRest();
+  const active = Boolean(draft);
+  useWakeLock(active);
+  useFocusMode(active);
+  const now = useTick(active);
+  // Tras marcar una serie, la siguiente queda a la vista (sin buscarla con el dedo).
+  const lastFocus = useRef<string | null>(null);
+  useEffect(() => {
+    if (!draft) { lastFocus.current = null; return; }
+    const el = document.querySelector('.set-editor');
+    const key = el?.getAttribute('data-focus') ?? null;
+    if (el && lastFocus.current !== null && key !== lastFocus.current) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    lastFocus.current = key ?? '';
+  });
 
   if (!plan && !p.loading) {
     return <main><header className="page-head"><h1>Entreno</h1></header><p>Aún no hay rutina. Impórtala en <Link to="/ajustes">Ajustes → Planes</Link> o pídesela a Claude.</p></main>;
@@ -255,50 +286,102 @@ export function Training({ date: initial }: { date?: string }) {
     );
   }
 
+  function doneSet(li: number, i: number) {
+    if (!draft) return;
+    const l = draft.lines[li];
+    const st = l.sets[i];
+    const reps = num(st.reps);
+    if (reps === null || Number.isNaN(reps)) { setHint(`${l.name}, serie ${i + 1}: pon las repeticiones.`); return; }
+    if ([num(st.kg), num(st.rir), num(st.molestia)].some((x) => Number.isNaN(x))) { setHint(`${l.name}, serie ${i + 1}: algún número no es válido.`); return; }
+    setHint(null);
+    unlockAudio();
+    const wasDone = st.done;
+    update((d) => {
+      d.lines[li].sets[i].done = true;
+      if (!d.startedAt) d.startedAt = new Date().toISOString();
+      const next = d.lines[li].sets[i + 1];
+      if (next && !next.kg && d.lines[li].sets[i].kg) next.kg = d.lines[li].sets[i].kg;
+    });
+    setEditing(null);
+    if (wasDone) return; // corrección de una serie ya hecha: ni descanso ni cambio de ejercicio
+    timer.start(day?.exercises.find((x) => x.key === l.key)?.rest_s ?? 120);
+    if (!l.sets.some((x, j) => j !== i && !x.done)) {
+      const nextLine = draft.lines.findIndex((x, j) => j > li && x.sets.some((y) => !y.done));
+      if (nextLine >= 0) setOpen(nextLine);
+    }
+  }
+
+  const discard = () => { if (confirm('¿Descartar esta sesión sin guardar?')) { setDraft(null); timer.stop(); } };
+  const openLine = draft.lines[open];
+  const pendingIdx = openLine ? openLine.sets.findIndex((x) => !x.done) : -1;
+  const activeSet = openLine ? (editing ?? (pendingIdx >= 0 ? pendingIdx : null)) : null;
+  const cur = openLine && activeSet !== null ? openLine.sets[activeSet] : null;
+  const totalSets = draft.lines.reduce((a, l) => a + l.sets.length, 0);
+  const doneSets = draft.lines.reduce((a, l) => a + l.sets.filter((x) => x.done).length, 0);
+  const elapsed = draft.startedAt ? Math.max(0, Math.floor((now - Date.parse(draft.startedAt)) / 1000)) : 0;
+  const preDone = draft.pre.every((v) => v !== null);
+  const finishBtn = (cls: string) => <button className={cls} disabled={busy} onClick={() => void finish()}>{busy ? 'Guardando…' : 'Terminar y guardar'}</button>;
+
   return (
     <main className="workout">
-      {header}
-      {timer.left !== null ? (
-        <div className={timer.left <= 0 ? 'rest-bar done' : 'rest-bar'} role="timer" aria-live="polite">
-          <span className="grow">{timer.left > 0 ? <>Descanso <strong>{mmss(timer.left)}</strong></> : <strong>¡Siguiente serie!</strong>}</span>
-          <button className="btn small ghost" onClick={() => timer.add(-15)}>−15 s</button>
-          <button className="btn small ghost" onClick={() => timer.add(15)}>+15 s</button>
-          <button className="btn small" onClick={() => timer.stop()}>{timer.left > 0 ? 'Saltar' : 'Vale'}</button>
-        </div>
-      ) : null}
+      <header className="page-head workout-head">
+        <h1>{day?.name ?? 'Entreno'}</h1>
+        <p className="muted small">{shortDate(date, { weekday: 'long', day: 'numeric', month: 'long' })}{gyms.length > 1 ? ` · ${current?.label}${mode === 'mantenimiento' ? ' (mantenimiento)' : ''}` : ''}</p>
+      </header>
+      <div className="session-bar">
+        {timer.left !== null ? (
+          <div className={timer.left <= 0 ? 'rest-bar done' : 'rest-bar'} role="timer" aria-live="polite">
+            <span className="grow">{timer.left > 0 ? <>Descanso <strong>{mmss(timer.left)}</strong></> : <strong>¡Siguiente serie!</strong>}</span>
+            {timer.left > 0 ? <>
+              <button className="btn ghost" onClick={() => timer.add(-15)}>−15 s</button>
+              <button className="btn ghost" onClick={() => timer.add(15)}>+15 s</button>
+            </> : null}
+            <button className="btn" onClick={() => timer.stop()}>{timer.left > 0 ? 'Saltar' : 'Vale'}</button>
+          </div>
+        ) : (
+          <div className="progress-line">
+            <span className="grow">Ejercicio {Math.min(open + 1, draft.lines.length || 1)} de {draft.lines.length || 1} · {doneSets}/{totalSets} series</span>
+            <span className="muted tabular" aria-label="Tiempo de sesión">{mmss(elapsed)}</span>
+          </div>
+        )}
+        <div className="progress" aria-hidden="true"><span style={{ width: `${totalSets ? (100 * doneSets) / totalSets : 0}%` }} /></div>
+      </div>
 
       <section className="card">
-        <h2>Antes de empezar (30 s)</h2>
-        {PRE.map((q, i) => (
-          <div key={q.key} className="pre-row">
-            <span className="grow small">{q.label}</span>
-            <div className="chips tight" role="radiogroup" aria-label={q.label}>
-              {[1, 2, 3, 4, 5].map((v) => (
-                <button key={v} type="button" role="radio" aria-checked={draft.pre[i] === v} className={draft.pre[i] === v ? 'chip on' : 'chip'}
-                  onClick={() => update((d) => { d.pre[i] = d.pre[i] === v ? null : v; if (!d.startedAt) d.startedAt = new Date().toISOString(); })}>{v}</button>
-              ))}
-            </div>
+        {preDone && !preOpen ? (
+          <div className="row gap">
+            <span className="grow small">Antes de empezar: {draft.pre.join(' · ')}.{level.level === 'normal' ? ` ${level.text}` : ''}</span>
+            <button className="btn small ghost" onClick={() => setPreOpen(true)}>Cambiar</button>
           </div>
-        ))}
-        <p className={level.level === 'normal' ? 'muted small' : 'banner'}>{level.text}</p>
+        ) : (
+          <>
+            <h2>Antes de empezar (30 s)</h2>
+            {PRE.map((q, i) => (
+              <div key={q.key} className="pre-row">
+                <span className="grow small">{q.label}</span>
+                <div className="chips tight" role="radiogroup" aria-label={q.label}>
+                  {[1, 2, 3, 4, 5].map((v) => (
+                    <button key={v} type="button" role="radio" aria-checked={draft.pre[i] === v} className={draft.pre[i] === v ? 'chip on' : 'chip'}
+                      onClick={() => update((d) => { d.pre[i] = d.pre[i] === v ? null : v; if (!d.startedAt) d.startedAt = new Date().toISOString(); })}>{v}</button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {preDone ? <button className="btn small" onClick={() => setPreOpen(false)}>Listo</button> : null}
+          </>
+        )}
+        {level.level !== 'normal' ? <p className="banner">{level.text}</p> : !preDone || preOpen ? <p className="muted small">{level.text}</p> : null}
       </section>
 
       {draft.lines.map((l, li) => {
         const ex = day?.exercises.find((x) => x.key === l.key);
         if (!ex) return null;
         const hist = exposuresFor(ex, history);
-        return <LineCard key={l.key} ex={ex} line={l} hist={hist} level={level.level} mode={mode} open={open === li} onOpen={() => setOpen(li)}
-          onChange={(fn) => update((d) => fn(d.lines[li]))}
-          onSetDone={(i) => {
-            update((d) => {
-              d.lines[li].sets[i].done = true;
-              if (!d.startedAt) d.startedAt = new Date().toISOString();
-              const next = d.lines[li].sets[i + 1];
-              if (next && !next.kg && d.lines[li].sets[i].kg) next.kg = d.lines[li].sets[i].kg;
-            });
-            timer.start(ex.rest_s ?? 120);
-            if (i === l.sets.length - 1) setOpen(li + 1);
-          }} />;
+        return <LineCard key={l.key} ex={ex} line={l} hist={hist} level={level.level} mode={mode} open={open === li}
+          activeSet={open === li ? activeSet : null}
+          onOpen={() => { setOpen(li); setEditing(null); setHint(null); }}
+          onEdit={(i) => { setEditing(i); setHint(null); }}
+          onChange={(fn) => update((d) => fn(d.lines[li]))} />;
       })}
 
       {day?.exercises.filter((x) => x.type === 'cardio' || x.type === 'movilidad').map((x) => {
@@ -323,9 +406,19 @@ export function Training({ date: initial }: { date?: string }) {
         <label>Observaciones<textarea rows={2} value={draft.notes} onChange={(e) => update((d) => { d.notes = e.target.value; })} /></label>
       </section>
       {errors.length ? <ul className="error">{errors.map((e) => <li key={e}>{e}</li>)}</ul> : null}
-      <div className="sticky-actions row gap">
-        <button className="btn primary grow" disabled={busy} onClick={() => void finish()}>{busy ? 'Guardando…' : 'Terminar y guardar'}</button>
-        <button className="btn ghost" onClick={() => { if (confirm('¿Descartar esta sesión sin guardar?')) { setDraft(null); timer.stop(); } }}>Descartar</button>
+      <div className="row gap end-actions">
+        {cur ? finishBtn('btn grow') : null}
+        <button className="btn ghost" onClick={discard}>Descartar</button>
+      </div>
+      <p className="muted small center"><Link to="/">Salir sin terminar</Link>: la sesión queda guardada en el teléfono.</p>
+
+      <div className="focus-bar">
+        {hint ? <p className="error small" role="alert">{hint}</p> : null}
+        {cur && openLine && activeSet !== null ? (
+          <button className="btn primary big" aria-label={`Serie ${activeSet + 1} hecha`} onClick={() => doneSet(open, activeSet)}>
+            ✓ Serie {activeSet + 1} de {openLine.sets.length}{cur.kg ? ` · ${cur.kg} kg` : ''}{cur.reps ? ` × ${cur.reps}` : ''}
+          </button>
+        ) : finishBtn('btn primary big')}
       </div>
     </main>
   );
@@ -396,13 +489,17 @@ function target(x: Exercise): string {
   return `${x.sets} × ${x.reps?.[0]}-${x.reps?.[1]}${x.per_side ? ' por lado' : ''}${x.rir ? ` · RIR ${x.rir[0]}-${x.rir[1]}` : ''}`;
 }
 
-function LineCard({ ex, line, hist, level, mode, open, onOpen, onChange, onSetDone }: {
-  ex: Exercise; line: LineDraft; hist: Exposure[]; level: Readiness; mode: TrainingMode; open: boolean; onOpen: () => void;
-  onChange: (fn: (l: LineDraft) => void) => void; onSetDone: (i: number) => void;
+function LineCard({ ex, line, hist, level, mode, open, activeSet, onOpen, onEdit, onChange }: {
+  ex: Exercise; line: LineDraft; hist: Exposure[]; level: Readiness; mode: TrainingMode; open: boolean; activeSet: number | null;
+  onOpen: () => void; onEdit: (i: number) => void; onChange: (fn: (l: LineDraft) => void) => void;
 }) {
   const sug = useMemo(() => suggest(ex, hist, level, mode), [ex, hist, level, mode]);
   const done = line.sets.filter((s) => s.done).length;
   const last = hist[0];
+  const [pickMachine, setPickMachine] = useState(false);
+  const options = machineOptions(ex.machine);
+  const custom = !options.includes(line.machine);
+  const range = (r?: [number, number]) => (r ? `${r[0]}-${r[1]}` : '');
   return (
     <section className={open ? 'card line open' : 'card line'}>
       <button className="line-head" onClick={onOpen} aria-expanded={open}>
@@ -423,30 +520,76 @@ function LineCard({ ex, line, hist, level, mode, open, onOpen, onChange, onSetDo
           {last ? <p className="muted small">Última vez ({last.date.slice(8)}/{last.date.slice(5, 7)}): {last.sets.map((s) => `${s.kg ?? '–'}×${s.reps ?? '–'}${s.rir !== null ? ` @${s.rir}` : ''}`).join(' · ')}</p> : null}
           {ex.notes ? <p className="muted small">{ex.notes}</p> : null}
           <div className="sets">
-            <div className="set head" aria-hidden="true"><span>#</span><span>kg</span><span>reps</span><span>RIR</span><span>dolor</span><span /></div>
-            {line.sets.map((st, i) => (
-              <div key={i} className={st.done ? 'set done' : 'set'}>
-                <span className="muted">{i + 1}</span>
-                <input aria-label={`Serie ${i + 1} kg`} inputMode="decimal" value={st.kg} onChange={(e) => onChange((l) => { l.sets[i].kg = e.target.value; })} />
-                <input aria-label={`Serie ${i + 1} reps`} inputMode="numeric" placeholder={ex.reps ? `${ex.reps[0]}-${ex.reps[1]}` : ''} value={st.reps} onChange={(e) => onChange((l) => { l.sets[i].reps = e.target.value; })} />
-                <input aria-label={`Serie ${i + 1} RIR`} inputMode="numeric" placeholder={ex.rir ? `${ex.rir[0]}-${ex.rir[1]}` : ''} value={st.rir} onChange={(e) => onChange((l) => { l.sets[i].rir = e.target.value; })} />
-                <input aria-label={`Serie ${i + 1} molestia 0-10`} inputMode="numeric" placeholder="0" value={st.molestia} onChange={(e) => onChange((l) => { l.sets[i].molestia = e.target.value; })} />
-                <button className={st.done ? 'btn small ok' : 'btn small primary'} aria-label={`Serie ${i + 1} hecha`} onClick={() => onSetDone(i)}>✓</button>
+            {line.sets.map((st, i) => i === activeSet ? (
+              <div key={i} className={st.done ? 'set-editor done' : 'set-editor'} role="group" aria-label={`Serie ${i + 1} de ${line.sets.length}`} data-focus={`${line.key}:${i}`}>
+                <div className="row gap">
+                  <strong className="grow">Serie {i + 1} de {line.sets.length}{st.done ? ' · corrigiendo' : ''}</strong>
+                </div>
+                <Stepper label={`Serie ${i + 1} kg`} unit="kg" value={st.kg} step={kgStep(ex.load, num(st.kg) || 0)} onChange={(v) => onChange((l) => { l.sets[i].kg = v; })} />
+                <Stepper label={`Serie ${i + 1} reps`} unit="reps" value={st.reps} step={1} placeholder={range(ex.reps)} onChange={(v) => onChange((l) => { l.sets[i].reps = v; })} />
+                <Stepper label={`Serie ${i + 1} RIR`} unit="RIR" value={st.rir} step={1} max={10} placeholder={range(ex.rir)} onChange={(v) => onChange((l) => { l.sets[i].rir = v; })} />
+                <div className="row gap molestia">
+                  <label className="grow inline">Molestia (0-10)
+                    <input aria-label={`Serie ${i + 1} molestia 0-10`} inputMode="numeric" placeholder="0" value={st.molestia} onChange={(e) => onChange((l) => { l.sets[i].molestia = e.target.value; })} />
+                  </label>
+                </div>
                 {Number(st.molestia.replace(',', '.')) >= 3 ? (
                   <input className="zona" aria-label={`Serie ${i + 1} zona de la molestia`} placeholder="¿Dónde? (hombro dcho., lumbar…)" value={st.zona}
                     onChange={(e) => onChange((l) => { l.sets[i].zona = e.target.value; })} />
                 ) : null}
               </div>
+            ) : (
+              <button key={i} type="button" className={st.done ? 'set-row done' : 'set-row'} onClick={() => onEdit(i)} aria-label={`Serie ${i + 1}: ${st.done ? 'hecha, tocar para corregir' : 'pendiente'}`}>
+                <span className="muted">{i + 1}</span>
+                <span className="grow tabular">{st.kg ? `${st.kg} kg` : '–'} × {st.reps || '–'}{st.rir ? ` @${st.rir}` : ''}{Number(st.molestia) > 0 ? ` · molestia ${st.molestia}` : ''}</span>
+                <span aria-hidden="true">{st.done ? '✓' : ''}</span>
+              </button>
             ))}
           </div>
-          <div className="row gap">
+          <div className="row gap wrap">
             <button className="btn small ghost" onClick={() => onChange((l) => { const prev = l.sets[l.sets.length - 1]; l.sets.push({ kg: prev?.kg ?? '', reps: '', rir: '', molestia: '', zona: '', done: false }); })}>+ Serie</button>
             {line.sets.length > 1 ? <button className="btn small ghost" onClick={() => onChange((l) => { l.sets.pop(); })}>− Serie</button> : null}
-            <label className="grow machine">Máquina<input value={line.machine} onChange={(e) => onChange((l) => { l.machine = e.target.value; })} /></label>
+            <button className="btn small ghost grow machine-btn" aria-expanded={pickMachine} onClick={() => setPickMachine(!pickMachine)}>Máquina: {line.machine || 'sin anotar'}</button>
           </div>
+          {pickMachine ? (
+            <div className="machine-pick">
+              <div className="chips" role="radiogroup" aria-label="Máquina de hoy">
+                {options.map((o) => (
+                  <button key={o} type="button" role="radio" aria-checked={line.machine === o} className={line.machine === o ? 'chip on' : 'chip'}
+                    onClick={() => { onChange((l) => { l.machine = o; }); setPickMachine(false); }}>{o}</button>
+                ))}
+                <button type="button" role="radio" aria-checked={custom} className={custom ? 'chip on' : 'chip'} onClick={() => { if (!custom) onChange((l) => { l.machine = ''; }); }}>Otra</button>
+              </div>
+              {custom ? <label>Máquina<input value={line.machine} placeholder="Nombre de la máquina" onChange={(e) => onChange((l) => { l.machine = e.target.value; })} /></label> : null}
+            </div>
+          ) : null}
         </>
       ) : null}
     </section>
+  );
+}
+
+/** Número con botones − / + grandes para la sala (se puede escribir igualmente). Vacío: el primer toque pone el mínimo del rango. */
+function Stepper({ label, unit, value, step, max, placeholder, onChange }: {
+  label: string; unit: string; value: string; step: number; max?: number; placeholder?: string; onChange: (v: string) => void;
+}) {
+  const bump = (dir: 1 | -1) => {
+    const cur = num(value);
+    const low = num(placeholder?.split('-')[0] ?? '');
+    let v: number;
+    if (cur === null || Number.isNaN(cur)) v = low !== null && !Number.isNaN(low) ? low : dir > 0 ? step : 0;
+    else v = cur + dir * step;
+    v = Math.max(0, Math.round(v * 100) / 100);
+    if (max !== undefined) v = Math.min(max, v);
+    onChange(fmtKg(v));
+  };
+  return (
+    <div className="num-stepper">
+      <span className="num-unit">{unit}</span>
+      <button type="button" className="btn step" aria-label={`Restar ${unit} (${label.split(' ').slice(0, 2).join(' ').toLowerCase()})`} onClick={() => bump(-1)}>−</button>
+      <input aria-label={label} inputMode="decimal" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+      <button type="button" className="btn step" aria-label={`Sumar ${unit} (${label.split(' ').slice(0, 2).join(' ').toLowerCase()})`} onClick={() => bump(1)}>+</button>
+    </div>
   );
 }
 
@@ -455,6 +598,7 @@ function useRest() {
   const [end, setEnd] = useState<number | null>(null);
   const [now, setNow] = useState(Date.now());
   const buzzed = useRef(false);
+  const warned = useRef(false);
   useEffect(() => {
     if (end === null) return;
     const t = setInterval(() => setNow(Date.now()), 500);
@@ -462,14 +606,13 @@ function useRest() {
   }, [end]);
   const left = end === null ? null : Math.ceil((end - now) / 1000);
   useEffect(() => {
-    if (left !== null && left <= 0 && !buzzed.current) {
-      buzzed.current = true;
-      try { navigator.vibrate?.([300, 150, 300]); } catch { /* sin vibración */ }
-    }
+    // Aviso a 10 s (un pitido grave) y al terminar (tres agudos).
+    if (left !== null && left <= 10 && left > 0 && !warned.current) { warned.current = true; beep(1, 660); }
+    if (left !== null && left <= 0 && !buzzed.current) { buzzed.current = true; beep(3, 988); }
   }, [left]);
   return {
     left,
-    start: (seconds: number) => { buzzed.current = false; setNow(Date.now()); setEnd(Date.now() + seconds * 1000); },
+    start: (seconds: number) => { buzzed.current = false; warned.current = seconds <= 10; setNow(Date.now()); setEnd(Date.now() + seconds * 1000); },
     add: (seconds: number) => setEnd((e) => (e === null ? e : e + seconds * 1000)),
     stop: () => setEnd(null),
   };

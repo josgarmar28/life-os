@@ -36,7 +36,7 @@ export function ManageList() {
   const archived = s.areas.filter((a) => a.status === 'archived');
   return (
     <main>
-      <header className="page-head"><h1>Áreas</h1></header>
+      <header className="page-head"><h1>Gestionar áreas</h1><p className="muted">Crear, cambiar o archivar áreas y sus cuestionarios.</p></header>
       <section className="card">
         <h2>Nueva área</h2>
         <form className="inline-form" onSubmit={(e) => {
@@ -73,7 +73,7 @@ export function ManageArea({ slug }: { slug: string }) {
   return (
     <main>
       <header className="page-head">
-        <Link to="/gestion" className="link">← Áreas</Link>
+        <Link to="/gestion" className="link">← Gestionar áreas</Link>
         <h1>{area.icon} {area.name}</h1>
       </header>
       <AreaEditor area={area} />
@@ -100,11 +100,14 @@ function AreaEditor({ area }: { area: Area }) {
           <label className="grow">Nombre<input value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} required /></label>
         </div>
         <label>Descripción<textarea rows={2} value={v.description} onChange={(e) => setV({ ...v, description: e.target.value })} /></label>
-        <div className="row gap">
-          <label className="grow">Identificador<input value={v.slug} onChange={(e) => setV({ ...v, slug: slugify(e.target.value) })} /></label>
-          <label className="narrow">Orden<input inputMode="numeric" value={v.sort} onChange={(e) => setV({ ...v, sort: e.target.value })} /></label>
-        </div>
-        <p className="muted small">El identificador es el que usa Claude ("{area.slug}"). Si lo cambias, avísale.</p>
+        <details className="more">
+          <summary>Avanzado (identificador y orden)</summary>
+          <div className="row gap">
+            <label className="grow">Identificador<input value={v.slug} onChange={(e) => setV({ ...v, slug: slugify(e.target.value) })} /></label>
+            <label className="narrow">Orden<input inputMode="numeric" value={v.sort} onChange={(e) => setV({ ...v, sort: e.target.value })} /></label>
+          </div>
+          <p className="muted small">El identificador es el que usa Claude ("{area.slug}"). Si lo cambias, avísale. El orden menor sale antes.</p>
+        </details>
         <button className="btn" disabled={act.busy}>Guardar</button>
         {act.error ? <p className="error">{act.error}</p> : null}
       </form>
@@ -166,9 +169,14 @@ function FormEditor({ area, form }: { area: Area; form: Form }) {
                   {CADENCES.map((c) => <option key={c} value={c}>{CADENCE_LABEL[c]}</option>)}
                 </select>
               </label>
-              <label className="narrow">Orden<input inputMode="numeric" value={v.sort} onChange={(e) => setV({ ...v, sort: e.target.value })} /></label>
             </div>
-            <label>Identificador<input value={v.slug} onChange={(e) => setV({ ...v, slug: slugify(e.target.value) })} /></label>
+            <details className="more">
+              <summary>Avanzado (identificador y orden)</summary>
+              <div className="row gap">
+                <label className="grow">Identificador<input value={v.slug} onChange={(e) => setV({ ...v, slug: slugify(e.target.value) })} /></label>
+                <label className="narrow">Orden<input inputMode="numeric" value={v.sort} onChange={(e) => setV({ ...v, sort: e.target.value })} /></label>
+              </div>
+            </details>
             <div className="row gap">
               <button className="btn" disabled={act.busy}>Guardar</button>
               <button type="button" className="btn ghost" disabled={act.busy}

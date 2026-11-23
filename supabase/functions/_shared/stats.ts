@@ -56,6 +56,29 @@ export function periodStatus(cadence: Cadence, dates: string[], today: string): 
   }
 }
 
+/**
+ * ¿Toca hoy? Lo diario, si falta; lo semanal y quincenal, el domingo (último día de su semana);
+ * lo mensual, desde el primer domingo del mes (su cierre). Lo libre o por sesión, nunca.
+ */
+export function dueToday(cadence: Cadence, status: PeriodStatus, today: string): boolean {
+  if (status.done !== false) return false;
+  const wd = new Date(`${today}T12:00:00Z`).getUTCDay(); // 0 = domingo
+  switch (cadence) {
+    case 'daily':
+      return true;
+    case 'weekly':
+    case 'biweekly':
+      return wd === 0;
+    case 'monthly': {
+      const first = new Date(`${today.slice(0, 7)}-01T12:00:00Z`).getUTCDay();
+      const firstSunday = 1 + ((7 - first) % 7);
+      return Number(today.slice(8)) >= firstSunday;
+    }
+    default:
+      return false;
+  }
+}
+
 export interface Point {
   date: string;
   value: number;
@@ -145,9 +168,21 @@ export function formatNumber(v: number, decimals = 1): string {
 }
 
 export function formatDuration(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = Math.round(minutes % 60);
+  const total = Math.round(minutes);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
   return h ? `${h} h ${String(m).padStart(2, '0')}` : `${m} min`;
+}
+
+/** Media u otra cifra derivada de un campo, en su unidad (una duración en "7 h 40", no en minutos). */
+export function formatStat(field: Pick<Field, 'type'>, v: number): string {
+  return field.type === 'duration' ? formatDuration(v) : formatNumber(v, 1);
+}
+
+/** Diferencia con signo ("+0,4", "−12 min"). */
+export function formatDelta(field: Pick<Field, 'type'>, d: number): string {
+  const sign = d > 0 ? '+' : d < 0 ? '−' : '';
+  return field.type === 'duration' ? `${sign}${Math.round(Math.abs(d))} min` : `${sign}${formatNumber(Math.abs(d), 1)}`;
 }
 
 /** Valor legible para humanos (y para el conector). */

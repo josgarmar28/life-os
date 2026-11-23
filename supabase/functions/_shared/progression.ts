@@ -115,6 +115,32 @@ export function loadStep(kind: LoadKind | undefined, kg: number): { kg: number |
   }
 }
 
+/** Paso de los botones − / + de kg en la sala: el escalón de su tipo de carga (o el habitual si depende de la máquina). */
+export function kgStep(kind: LoadKind | undefined, kg: number): number {
+  const s = loadStep(kind, kg).kg;
+  if (s !== null) return s;
+  if (kind === 'hibrida') return 2.27;
+  if (kind === 'mancuerna') return 2;
+  if (kind === 'corporal') return 1;
+  return 2.5;
+}
+
+/**
+ * Máquinas a elegir con un toque a partir del texto del plan: la principal y sus alternativas
+ * ("New Tech Wide (plan B: Prime P-102)", "Polea (o cuerda)", "Máquina X · alt.: mancuernas, multipower").
+ * Un paréntesis que no es alternativa ("(hombreras)") se queda en el nombre.
+ */
+export function machineOptions(machine: string | undefined): string[] {
+  if (!machine?.trim()) return [];
+  const [main, alt] = machine.split(/\s*·\s*alt\.?:\s*/);
+  const out: string[] = [];
+  const m = main.match(/^(.*?)\s*\((plan B:\s*|o\s+)(.+)\)\s*$/);
+  if (m) out.push(m[1].trim(), m[3].trim());
+  else out.push(main.trim());
+  if (alt) out.push(...alt.split(/,\s*/).map((x) => x.trim()));
+  return [...new Set(out.filter(Boolean))];
+}
+
 const round = (x: number) => Math.round(x * 10) / 10;
 const fmt = (x: number) => String(round(x)).replace('.', ',');
 
