@@ -18,6 +18,8 @@ interface ScalarProps {
   placeholder?: string;
   /** Texto largo (notas): caja de varias líneas. Si no, una línea. */
   multiline?: boolean;
+  /** Qué significa cada extremo de una escala ("peor", "mejor"). */
+  ends?: [string, string];
 }
 
 function Chips({ options, value, multi, label, onChange }: { options: Option[]; value: Cell; multi?: boolean; label: string; onChange: (v: Cell) => void }) {
@@ -48,7 +50,12 @@ export function ScalarInput(p: ScalarProps) {
       const lo = p.min ?? 1;
       const hi = p.max ?? 5;
       const opts = Array.from({ length: Math.max(0, hi - lo + 1) }, (_, i) => ({ value: String(lo + i) }));
-      return opts.length <= 11 ? <Chips options={opts} value={v} label={p.label} onChange={p.onChange} />
+      return opts.length <= 11 ? (
+        <div>
+          <Chips options={opts} value={v} label={p.label} onChange={p.onChange} />
+          {p.ends ? <p className="scale-ends muted small" aria-hidden="true"><span>{lo} {p.ends[0]}</span><span>{hi} {p.ends[1]}</span></p> : null}
+        </div>
+      )
         : <input id={p.id} type="number" inputMode="numeric" min={lo} max={hi} value={v} onChange={(e) => p.onChange(e.target.value)} />;
     }
     case 'boolean':

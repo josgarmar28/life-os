@@ -3,10 +3,17 @@ import type { Entry } from '@shared/model.ts';
 import { localDate } from '@shared/stats.ts';
 import { useStructure } from '../data';
 import { Link, navigate } from '../router';
-import { api, explainError } from '../supabase';
-import { send } from '../outbox';
+import { api, explainError, rpc } from '../supabase';
+import { sendFull } from '../outbox';
+import { showToast } from '../toast';
 import { ScalarInput, TableInput } from '../components/FieldInput';
 import { fromData, toPayload, type Cell, type FormState, type Row } from '../values';
+
+/** Siguiente registro del recorrido ("Empezar el día"): solo rutas de la propia app. */
+function nextPath(): string | null {
+  const n = new URLSearchParams(location.search).get('siguiente');
+  return n && n.startsWith('/') && !n.startsWith('//') ? n : null;
+}
 
 export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; formSlug: string; entryId?: string }) {
   const s = useStructure();
@@ -72,9 +79,9 @@ export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; f
 
   // Formularios largos (p. ej. el registro de mañana): primero lo que se contesta con un toque y lo
   // obligatorio; lo que hay que escribir (datos de Zepp, horas, notas) va en "Más detalles".
-  const TAP = ['scale', 'boolean', 'choice', 'multi'];
+  // A la vista solo lo obligatorio y las escalas de 1 toque (calidad, energía, estrés…); el resto, plegado.
   const split = fields.length >= 8 && !hasTable;
-  const primary = split ? fields.filter((f) => f.required || TAP.includes(f.type)) : fields;
+  const primary = split ? fields.filter((f) => f.required || f.type === 'scale') : fields;
   const secondary = split ? fields.filter((f) => !primary.includes(f)) : [];
   const filled = (f: (typeof fields)[number]) => { const v = state[f.key]; return Array.isArray(v) ? v.length > 0 : v !== '' && v !== null && v !== undefined; };
   const renderField = (f: (typeof fields)[number]) => (
@@ -91,10 +98,13 @@ export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; f
         ? <TableInput field={f} rows={(state[f.key] as Row[]) ?? []} onChange={(rows) => set(f.key, rows)} />
         : <ScalarInput id={`f-${f.key}`} type={f.type} label={f.label} unit={f.unit} min={f.min} max={f.max} step={f.step}
             options={f.options} value={(state[f.key] as Cell) ?? ''} onChange={(v) => set(f.key, v)}
-            placeholder={example(f)} multiline={/nota|observ|coment|descrip/i.test(`${f.key} ${f.label}`)} />}
+            placeholder={example(f)} multiline={/nota|observ|coment|descrip/i.test(`${f.key} ${f.label}`)}
+            ends={f.type === 'scale' && !f.help && !f.label.includes('=') ? ['peor', 'mejor'] : undefined} />}
     </div>
   );
   const dayLabel = date === today ? 'hoy' : new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));
+
+  const next = nextPath();
 
   async function submit() {
     const { data, errors: errs } = toPayload(fields, state);
@@ -106,7 +116,7 @@ export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; f
     setBusy(true);
     try {
       const occurredAt = prev ? prev.occurred_at : date === today ? new Date().toISOString() : new Date(`${date}T12:00:00`).toISOString();
-      const result = await send('add_entry', {
+      const result = await sendFull<string>('add_entry', {
         p_form_id: form!.id,
         p_values: data,
         p_request_id: requestId,
@@ -116,8 +126,28 @@ export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; f
         p_quality: estimated ? 'estimated' : 'manual',
         p_supersedes_id: prev?.id ?? null,
       }, `${area!.icon} ${form!.name} ${date}`);
-      if (result === 'queued') alert('Sin conexión: el registro queda guardado en el teléfono y se enviará solo al volver la conexión.');
-      navigate(`/a/${area!.slug}`);
+      const name = form!.name;
+      if (result.status === 'queued') {
+        showToast({ text: `${name}: guardado en el móvil; se enviará solo al volver la cobertura.`, ms: 8000 });
+      } else if (prev) {
+        showToast({ text: `${name}: corregido ✓` });
+      } else {
+        const id = result.data;
+        showToast({
+          text: `${name}: guardado ✓`,
+          action: typeof id === 'string' ? {
+            label: 'Deshacer',
+            run: async () => {
+              try {
+                await rpc('void_entry', { p_entry_id: id, p_request_id: crypto.randomUUID(), p_note: 'Deshecho al guardar' });
+                showToast({ text: `${name}: deshecho.` });
+                window.dispatchEvent(new Event('lifeos-entries'));
+              } catch (e) { showToast({ text: explainError(e) }); }
+            },
+          } : undefined,
+        });
+      }
+      navigate(next ?? `/a/${area!.slug}`);
     } catch (e) {
       setErrors([explainError(e)]);
     } finally {
@@ -131,6 +161,7 @@ export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; f
         <Link to={`/a/${area.slug}`} className="link">← {area.icon} {area.name}</Link>
         <h1>{form.name}</h1>
         {form.description ? <p className="muted">{form.description}</p> : null}
+        {next && !prev ? <p className="banner small">Empezar el día: al guardar {next === '/' ? 'vuelves a Hoy' : 'pasas al siguiente registro'}.</p> : null}
         {prev ? <p className="banner">Estás corrigiendo un registro: se guarda como versión nueva y la anterior queda en el historial.</p> : null}
       </header>
       <form className="entry-form" onSubmit={(e) => { e.preventDefault(); void submit(); }}>

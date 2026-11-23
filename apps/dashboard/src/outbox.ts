@@ -33,13 +33,17 @@ export function isNetworkError(e: unknown): boolean {
 
 /** Envía; si no hay red, encola y devuelve 'queued'. Los errores de validación se lanzan. */
 export async function send(fn: Pending['fn'], args: Record<string, unknown>, label: string): Promise<'sent' | 'queued'> {
+  return (await sendFull(fn, args, label)).status;
+}
+
+/** Como `send`, pero devuelve también lo que responde la base de datos (p. ej. el id del registro). */
+export async function sendFull<T = unknown>(fn: Pending['fn'], args: Record<string, unknown>, label: string): Promise<{ status: 'sent'; data: T } | { status: 'queued' }> {
   try {
-    await rpc(fn, args);
-    return 'sent';
+    return { status: 'sent', data: await rpc<T>(fn, args) };
   } catch (e) {
     if (!isNetworkError(e)) throw e;
     write([...readOutbox(), { fn, args, label, queuedAt: new Date().toISOString() }]);
-    return 'queued';
+    return { status: 'queued' };
   }
 }
 

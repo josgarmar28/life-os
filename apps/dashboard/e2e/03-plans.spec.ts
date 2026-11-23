@@ -83,6 +83,7 @@ test('modo entreno: cuestionario, series con descanso y molestia, y la última v
   await page.getByLabel('Serie 1 RIR').fill('2');
   await page.getByRole('button', { name: 'Serie 1 hecha' }).click();
   await expect(page.getByRole('timer')).toContainText('Descanso');
+  await expect(page.getByRole('timer')).toContainText('Siguiente: serie 2');
   await page.getByRole('button', { name: 'Saltar' }).click();
   await expect(page.getByLabel('Serie 2 kg')).toHaveValue('40'); // arrastra la carga
   await page.getByLabel('Serie 2 reps').fill('9');
@@ -101,7 +102,11 @@ test('modo entreno: cuestionario, series con descanso y molestia, y la última v
   await expect(page.getByRole('button', { name: /Crunch en máquina.*1\/2/ })).toBeVisible();
 
   await page.getByRole('button', { name: 'Terminar y guardar' }).click();
-  await expect(page).toHaveURL(/\/a\/entreno$/);
+  // Resumen de la sesión: lo hecho y lo que toca la próxima vez.
+  await expect(page.getByText('Sesión terminada')).toBeVisible();
+  await expect(page.locator('.summary-lines')).toContainText('40 kg × 10, 9');
+  await expect(page.locator('.summary-lines')).toContainText('Primera vez: carga de referencia');
+  await expect(page.locator('.summary-lines')).toContainText('Próxima vez:');
   await expect(page.locator('nav.tabs')).toBeVisible();
   expect(sql(`select string_agg(r->>'linea' || ':' || coalesce(r->>'carga_kg', '-') || 'x' || (r->>'reps') || ':' || coalesce(r->>'zona', ''), ',' order by n)
     from api.entries e join core.form f on f.id = e.form_id, jsonb_array_elements(e.data->'series') with ordinality as t(r, n)
@@ -145,7 +150,7 @@ test('otro gimnasio: periodo de viaje, mantenimiento con historial aparte y exce
   await page.getByRole('button', { name: 'Serie 1 hecha' }).click();
   await page.getByRole('button', { name: 'Saltar' }).click();
   await page.getByRole('button', { name: 'Terminar y guardar' }).click();
-  await expect(page).toHaveURL(/\/a\/entreno$/);
+  await expect(page.getByText('Sesión terminada')).toBeVisible();
   expect(sql(`select (data->>'gimnasio') || ':' || (data->'series'->0->>'linea') from api.entries e join core.form f on f.id = e.form_id where f.slug = 'sesion' and e.note like '%La Zona%'`))
     .toBe('la_zona:es_press_pecho');
 
