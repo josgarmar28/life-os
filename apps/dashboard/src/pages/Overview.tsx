@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { addDays, dueToday, formatDelta, formatStat, formatValue, localDate, summarizeForm, weekStart } from '@shared/stats.ts';
 import { CADENCE_LABEL } from '@shared/model.ts';
 import { loadEntries, useAsync, useStructure } from '../data';
+import { Skeleton } from '../components/Skeleton';
 import { Link } from '../router';
 import { Sparkline } from '../components/Sparkline';
 import { NowCard } from './Schedule';
@@ -13,7 +14,7 @@ function useSummaries() {
   const areas = s.areas.filter((a) => a.status === 'active');
   const forms = s.forms.filter((f) => f.status === 'active' && areas.some((a) => a.id === f.area_id));
   const formIds = forms.map((f) => f.id).join(',');
-  const entries = useAsync(() => loadEntries({ formIds: forms.map((f) => f.id), from: addDays(today, -59), to: today }), [formIds, today]);
+  const entries = useAsync(() => loadEntries({ formIds: forms.map((f) => f.id), from: addDays(today, -59), to: today }), [formIds, today], `resumen:${today}`);
   const summaries = useMemo(
     () => new Map(forms.map((f) => [f.id, summarizeForm(f, s.fields, entries.data ?? [], today)])),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -79,7 +80,9 @@ export function Overview() {
         <Link to="/propuestas" className="banner">Claude tiene {s.pendingProposals} {s.pendingProposals === 1 ? 'propuesta' : 'propuestas'} para que decidas.</Link>
       ) : null}
 
-      {dueNow.length ? (
+      {!entries.data && entries.loading ? (
+        <><Skeleton rows={4} /><Skeleton rows={0} tiles={4} /></>
+      ) : dueNow.length ? (
         <section className="card">
           <h2>Por registrar</h2>
           {morning.length ? (
@@ -109,7 +112,7 @@ export function Overview() {
 
       {entries.error ? <p className="error">No se pudieron cargar los datos: {entries.error}</p> : null}
 
-      {tiles.length || weekSets !== null ? (
+      {entries.data && (tiles.length || weekSets !== null) ? (
         <section className="card" aria-label="Resumen">
           <h2>Resumen</h2>
           <div className="tiles">

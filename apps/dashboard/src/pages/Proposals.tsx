@@ -1,3 +1,4 @@
+import { Skeleton } from '../components/Skeleton';
 import { useState } from 'react';
 import type { FieldType, Proposal } from '@shared/model.ts';
 import { CADENCE_LABEL, TYPE_LABEL } from '@shared/model.ts';
@@ -48,7 +49,7 @@ export function Proposals() {
       <header className="page-head"><h1>Propuestas de Claude</h1>
         <p className="muted">Claude no cambia la estructura por su cuenta: lo propone y tú decides.</p></header>
       {error ? <p className="error">{error}</p> : null}
-      {list.loading && !list.data ? <p className="muted">Cargando…</p> : null}
+      {list.loading && !list.data ? <Skeleton rows={3} /> : null}
       {!pending.length && list.data ? <p className="ok-line">No hay nada pendiente.</p> : null}
       {pending.map((p) => (
         <section className="card" key={p.id}>
