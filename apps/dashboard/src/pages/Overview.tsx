@@ -22,6 +22,9 @@ function useSummaries() {
   return { s, today, areas, forms, entries, summaries };
 }
 
+/** Registros de la mañana, en orden: [área, cuestionario]. */
+const MORNING: [string, string][] = [['cuerpo', 'peso'], ['sueno', 'manana']];
+
 export function Overview() {
   const { s, today, areas, forms, entries, summaries } = useSummaries();
   const pending = forms.filter((f) => summaries.get(f.id)?.status.done === false);
@@ -40,6 +43,14 @@ export function Overview() {
   const ws = weekStart(today);
   const weekSets = sesion ? (entries.data ?? []).filter((e) => e.form_id === sesion.id && e.local_date >= ws)
     .reduce((n, e) => n + (Array.isArray(e.data.series) ? e.data.series.length : 0), 0) : null;
+
+  // "Empezar el día": los registros de la mañana seguidos (primero el peso, en ayunas; luego el sueño) y vuelta a Hoy.
+  const morning = MORNING.flatMap(([area, slug]) => {
+    const a = areas.find((x) => x.slug === area);
+    const f = dueNow.find((x) => x.area_id === a?.id && x.slug === slug);
+    return f ? [{ path: `/a/${area}/${slug}/nuevo`, name: f.name }] : [];
+  });
+  const morningPath = morning.reduceRight((next, step) => `${step.path}?siguiente=${encodeURIComponent(next)}`, '/');
 
   const item = (f: (typeof forms)[number]) => {
     const a = areas.find((x) => x.id === f.area_id)!;
@@ -71,6 +82,11 @@ export function Overview() {
       {dueNow.length ? (
         <section className="card">
           <h2>Por registrar</h2>
+          {morning.length ? (
+            <Link to={morningPath} className="btn primary wide start-day">
+              Empezar el día<span className="block small">{morning.map((m) => m.name).join(' y ')}</span>
+            </Link>
+          ) : null}
           <ul className="todo">{dueNow.map(item)}</ul>
           {later.length ? (
             <details className="later">

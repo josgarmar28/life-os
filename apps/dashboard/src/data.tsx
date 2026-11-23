@@ -114,5 +114,11 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]) {
   useEffect(() => {
     void run();
   }, [run]);
+  // Tras deshacer un registro desde el aviso, las pantallas abiertas se recargan.
+  useEffect(() => {
+    const on = () => void run();
+    window.addEventListener('lifeos-entries', on);
+    return () => window.removeEventListener('lifeos-entries', on);
+  }, [run]);
   return { ...state, reload: run };
 }

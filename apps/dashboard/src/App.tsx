@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { configured, rpc, supabase } from './supabase';
 import { StructureProvider, useStructure } from './data';
+import { Toaster } from './toast';
 import { Link, match, useLocation } from './router';
 import { flushOutbox, isNetworkError, readOutbox } from './outbox';
 import { Login } from './pages/Login';
@@ -122,6 +123,7 @@ function Shell({ path }: { path: string }) {
       {s.error === 'offline' ? <p className="banner top">Sin conexión: puedes registrar; se enviará al volver la red.</p>
         : s.error ? <p className="error pad">No se pudo cargar la estructura: {s.error}</p> : null}
       {s.loading ? <p className="muted pad">Cargando…</p> : page}
+      <Toaster />
       <nav className="tabs">
         {tab('/', 'Hoy')}
         {tab('/horario', 'Horario')}

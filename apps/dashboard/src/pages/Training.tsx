@@ -8,10 +8,11 @@ import { addDays, localDate } from '@shared/stats.ts';
 import { gymForDate, HOME_GYM, isoWeekday, localTime, trainingGyms, WEEKDAY_NAME, WEEKDAY_SHORT, type Exercise, type TrainingDay, type TrainingMode, type TrainingPlan, type Weekday } from '@shared/plans.ts';
 import { exposuresFor, kgStep, machineChanged, machineOptions, readiness, setsToday, suggest, type Exposure, type Readiness } from '@shared/progression.ts';
 import { loadEntries, useStructure } from '../data';
-import { Link, navigate } from '../router';
+import { Link } from '../router';
 import { explainError, rpc } from '../supabase';
 import { send } from '../outbox';
 import { shortDate, usePlans } from '../plans';
+import { sessionSummary, type SessionSummary } from '../summary';
 
 interface SetDraft { kg: string; reps: string; rir: string; molestia: string; zona: string; done: boolean }
 interface LineDraft { key: string; name: string; machine: string; sets: SetDraft[] }
@@ -129,6 +130,7 @@ export function Training({ date: initial }: { date?: string }) {
   const [editing, setEditing] = useState<number | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [preOpen, setPreOpen] = useState(false);
+  const [summary, setSummary] = useState<(SessionSummary & { queued: boolean; dayName: string }) | null>(null);
   const timer = useRest();
   const active = Boolean(draft);
   useWakeLock(active);
@@ -225,10 +227,18 @@ export function Training({ date: initial }: { date?: string }) {
         }, `🚴 ${day.name} ${date}`);
         queued ||= r === 'queued';
       }
+      const sum = sessionSummary({
+        date, exercises: day.exercises, history, mode, startedAt: draft.startedAt, endedAt: now,
+        setsPlanned: draft.lines.reduce((a, l) => a + l.sets.length, 0),
+        lines: draft.lines.map((l) => ({
+          key: l.key, name: l.name, machine: l.machine,
+          sets: l.sets.filter((st) => st.done || st.reps.trim()).map((st) => ({ kg: num(st.kg), reps: num(st.reps), rir: num(st.rir) })),
+        })),
+      });
       setDraft(null);
       timer.stop();
-      if (queued) alert('Sin conexión: la sesión queda guardada en el teléfono y se enviará sola al volver la conexión.');
-      navigate('/a/entreno');
+      setSummary({ ...sum, queued, dayName: day.name });
+      window.scrollTo(0, 0);
     } catch (e) {
       setErrors([explainError(e)]);
     } finally {
@@ -244,6 +254,43 @@ export function Training({ date: initial }: { date?: string }) {
       {current?.plan.preview ? <p className="banner">Vista previa: esta rutina empieza el {shortDate(current.plan.row.valid_from, { day: 'numeric', month: 'long' })}.</p> : null}
     </header>
   );
+
+  if (summary) {
+    return (
+      <main className="session-summary">
+        <header className="page-head">
+          <p className="muted">Sesión terminada</p>
+          <h1>{summary.dayName}</h1>
+        </header>
+        {summary.queued ? <p className="banner">Sin conexión: la sesión está guardada en el móvil y se enviará sola al volver la cobertura.</p> : null}
+        <div className="tiles summary-tiles">
+          <div className="tile"><span className="muted small">Series</span><span className="tile-value">{summary.setsDone}<small>/{summary.setsPlanned}</small></span></div>
+          <div className="tile"><span className="muted small">Duración</span><span className="tile-value">{summary.minutes !== null ? `${summary.minutes} min` : '—'}</span></div>
+          <div className="tile"><span className="muted small">Mejoras</span><span className="tile-value">{summary.improved}<small>/{summary.lines.length}</small></span></div>
+        </div>
+        <section className="card">
+          <h2>Ejercicio a ejercicio</h2>
+          <ul className="list summary-lines">
+            {summary.lines.map((l) => (
+              <li key={l.name}>
+                <span className="grow">
+                  <strong>{l.name}</strong>
+                  <span className="block small">{l.today}</span>
+                  <span className={`block small ${l.better === true ? 'ok-text' : l.better === false ? 'warn-text' : 'muted'}`}>{l.better === true ? '▲ ' : l.better === false ? '▼ ' : ''}{l.change}</span>
+                  {l.next ? <span className="block small muted">Próxima vez: {l.next}</span> : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {summary.volume > 0 ? <p className="muted small">Has movido {summary.volume.toLocaleString('es-ES')} kg en total.</p> : null}
+        </section>
+        <div className="stack">
+          <Link to="/" className="btn primary wide">Volver a Hoy</Link>
+          <Link to="/a/entreno" className="btn ghost wide">Ver el historial</Link>
+        </div>
+      </main>
+    );
+  }
 
   if (!draft) {
     const others = plan?.days.filter((d) => d.kind !== 'descanso') ?? [];
@@ -322,6 +369,7 @@ export function Training({ date: initial }: { date?: string }) {
   const preDone = draft.pre.every((v) => v !== null);
   const finishBtn = (cls: string) => <button className={cls} disabled={busy} onClick={() => void finish()}>{busy ? 'Guardando…' : 'Terminar y guardar'}</button>;
 
+  const nextUp = firstPending(draft);
   return (
     <main className="workout">
       <header className="page-head workout-head">
@@ -331,12 +379,15 @@ export function Training({ date: initial }: { date?: string }) {
       <div className="session-bar">
         {timer.left !== null ? (
           <div className={timer.left <= 0 ? 'rest-bar done' : 'rest-bar'} role="timer" aria-live="polite">
-            <span className="grow">{timer.left > 0 ? <>Descanso <strong>{mmss(timer.left)}</strong></> : <strong>¡Siguiente serie!</strong>}</span>
+            <span className="grow">
+              {timer.left > 0 ? <>Descanso <strong>{mmss(timer.left)}</strong></> : <strong>¡Siguiente serie!</strong>}
+            </span>
             {timer.left > 0 ? <>
               <button className="btn ghost" onClick={() => timer.add(-15)}>−15 s</button>
               <button className="btn ghost" onClick={() => timer.add(15)}>+15 s</button>
             </> : null}
             <button className="btn" onClick={() => timer.stop()}>{timer.left > 0 ? 'Saltar' : 'Vale'}</button>
+            {nextUp ? <span className="small rest-next">Siguiente: serie {nextUp.set + 1} · {draft.lines[nextUp.line].name}</span> : null}
           </div>
         ) : (
           <div className="progress-line">
@@ -518,7 +569,9 @@ function LineCard({ ex, line, hist, level, mode, open, activeSet, onOpen, onEdit
           </div>
           {machineChanged(line.machine, last) ? <p className="banner small">La última vez usaste otra máquina ({last!.machine}): las cargas no son comparables. Si es otra de verdad, calibra con RIR 3.</p> : null}
           {last ? <p className="muted small">Última vez ({last.date.slice(8)}/{last.date.slice(5, 7)}): {last.sets.map((s) => `${s.kg ?? '–'}×${s.reps ?? '–'}${s.rir !== null ? ` @${s.rir}` : ''}`).join(' · ')}</p> : null}
-          {ex.notes ? <p className="muted small">{ex.notes}</p> : null}
+          {ex.notes ? (done > 0
+            ? <details className="more ex-notes"><summary>Notas de técnica</summary><p className="muted small">{ex.notes}</p></details>
+            : <p className="muted small">{ex.notes}</p>) : null}
           <div className="sets">
             {line.sets.map((st, i) => i === activeSet ? (
               <div key={i} className={st.done ? 'set-editor done' : 'set-editor'} role="group" aria-label={`Serie ${i + 1} de ${line.sets.length}`} data-focus={`${line.key}:${i}`}>
@@ -549,8 +602,8 @@ function LineCard({ ex, line, hist, level, mode, open, activeSet, onOpen, onEdit
           <div className="row gap wrap">
             <button className="btn small ghost" onClick={() => onChange((l) => { const prev = l.sets[l.sets.length - 1]; l.sets.push({ kg: prev?.kg ?? '', reps: '', rir: '', molestia: '', zona: '', done: false }); })}>+ Serie</button>
             {line.sets.length > 1 ? <button className="btn small ghost" onClick={() => onChange((l) => { l.sets.pop(); })}>− Serie</button> : null}
-            <button className="btn small ghost grow machine-btn" aria-expanded={pickMachine} onClick={() => setPickMachine(!pickMachine)}>Máquina: {line.machine || 'sin anotar'}</button>
           </div>
+          <button className="btn small ghost wide machine-btn" aria-expanded={pickMachine} onClick={() => setPickMachine(!pickMachine)}>Máquina: {line.machine || 'sin anotar'}</button>
           {pickMachine ? (
             <div className="machine-pick">
               <div className="chips" role="radiogroup" aria-label="Máquina de hoy">
