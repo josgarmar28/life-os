@@ -50,15 +50,21 @@ export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; f
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fieldsKey resume `fields`
   }, [entryId, fieldsKey]);
 
-  // Para tablas (p. ej. las series del gimnasio): partir de lo que hiciste la última vez.
+  // La última vez: en tablas (series del gimnasio) se puede copiar; en cifras, sale de ejemplo ("77,8").
   const hasTable = fields.some((f) => f.type === 'table');
   const [last, setLast] = useState<Entry | null>(null);
   useEffect(() => {
-    if (entryId || !hasTable || !form?.id) return;
+    if (entryId || !form?.id) return;
     void api().from('entries').select('*').eq('form_id', form.id)
       .order('local_date', { ascending: false }).order('occurred_at', { ascending: false }).limit(1).maybeSingle()
       .then(({ data }) => setLast((data as Entry | null) ?? null));
-  }, [entryId, hasTable, form?.id]);
+  }, [entryId, form?.id]);
+  const example = (f: (typeof fields)[number]): string | undefined => {
+    const v = last?.data[f.key];
+    if (typeof v !== 'number') return undefined;
+    if (f.type === 'duration') return `${Math.floor(v / 60)}h${String(Math.round(v % 60)).padStart(2, '0')}`;
+    return String(v).replace('.', ',');
+  };
 
   if (!area || !form) return <main><p>No existe ese formulario.</p><Link to="/">Volver</Link></main>;
 
@@ -84,7 +90,8 @@ export function EntryForm({ areaSlug, formSlug, entryId }: { areaSlug: string; f
       {f.type === 'table'
         ? <TableInput field={f} rows={(state[f.key] as Row[]) ?? []} onChange={(rows) => set(f.key, rows)} />
         : <ScalarInput id={`f-${f.key}`} type={f.type} label={f.label} unit={f.unit} min={f.min} max={f.max} step={f.step}
-            options={f.options} value={(state[f.key] as Cell) ?? ''} onChange={(v) => set(f.key, v)} />}
+            options={f.options} value={(state[f.key] as Cell) ?? ''} onChange={(v) => set(f.key, v)}
+            placeholder={example(f)} multiline={/nota|observ|coment|descrip/i.test(`${f.key} ${f.label}`)} />}
     </div>
   );
   const dayLabel = date === today ? 'hoy' : new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${date}T12:00:00Z`));

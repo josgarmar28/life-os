@@ -330,3 +330,8 @@ html { -webkit-tap-highlight-color: transparent; }
 .sets { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 8px; }
 .sets .block { display: block; font-variant-numeric: tabular-nums; }
 .btn.ghost.danger { background: none; color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.sticky-days { position: sticky; top: 0; z-index: 4; background: var(--bg); margin: 0 -16px 8px; padding: calc(6px + env(safe-area-inset-top)) 16px 8px; }
+ol.agenda li { scroll-margin-top: 80px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.file-btn { position: relative; cursor: pointer; }
+.file-btn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }

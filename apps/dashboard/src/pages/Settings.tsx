@@ -224,9 +224,14 @@ function PlansCard() {
           </div>
         );
       })}
-      <label>Importar archivo de planes (.json)<input type="file" accept="application/json,.json" onChange={(e) => void read(e.target.files?.[0])} /></label>
+      <label className="btn wide file-btn">
+        Importar planes (.json)…
+        <input type="file" className="sr-only" aria-label="Importar archivo de planes (.json)" accept="application/json,.json"
+          onChange={(e) => { void read(e.target.files?.[0]); e.target.value = ''; }} />
+      </label>
       {file ? (
         <div className="stack">
+          <p className="muted small">Archivo: {file.name}</p>
           {file.errors.length ? <ul className="error small">{file.errors.slice(0, 12).map((e) => <li key={e}>{e}</li>)}</ul> : null}
           {file.plans.map((pl) => (
             <details key={pl.kind + pl.name} open>

@@ -47,7 +47,8 @@ export function Schedule({ date: initial }: { date?: string }) {
           <span className="grow center">{shortDate(ws, { day: 'numeric', month: 'short' })} – {shortDate(addDays(ws, 6), { day: 'numeric', month: 'short' })}</span>
           <Link to={`/horario/${addDays(ws, 7)}`} className="btn small ghost" aria-label="Semana siguiente">›</Link>
         </div>
-        <nav className="day-chips" aria-label="Día">
+      </header>
+      <nav className="day-chips sticky-days" aria-label="Día">
           {WEEKDAYS.map((wd) => {
             const d = addDays(ws, wd - 1);
             return (
@@ -57,8 +58,7 @@ export function Schedule({ date: initial }: { date?: string }) {
               </Link>
             );
           })}
-        </nav>
-      </header>
+      </nav>
 
       {plans.schedule?.preview ? <p className="banner">Vista previa: este horario empieza el {shortDate(plans.schedule.row.valid_from, { day: 'numeric', month: 'long' })}.</p> : null}
       <WeekSettings key={ws} weekStartDate={ws} />

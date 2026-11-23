@@ -14,6 +14,10 @@ interface ScalarProps {
   value: Cell;
   onChange: (v: Cell) => void;
   compact?: boolean;
+  /** Ejemplo en gris (la última vez); sin él, el campo queda vacío. */
+  placeholder?: string;
+  /** Texto largo (notas): caja de varias líneas. Si no, una línea. */
+  multiline?: boolean;
 }
 
 function Chips({ options, value, multi, label, onChange }: { options: Option[]; value: Cell; multi?: boolean; label: string; onChange: (v: Cell) => void }) {
@@ -64,13 +68,13 @@ export function ScalarInput(p: ScalarProps) {
     case 'time':
       return <input id={p.id} type="time" value={v} onChange={(e) => p.onChange(e.target.value)} />;
     case 'text':
-      return p.compact
+      return p.compact || !p.multiline
         ? <input id={p.id} type="text" value={v} onChange={(e) => p.onChange(e.target.value)} />
         : <textarea id={p.id} rows={2} value={v} onChange={(e) => p.onChange(e.target.value)} />;
     case 'duration':
       return (
         <div className="with-unit">
-          <input id={p.id} type="text" inputMode="text" placeholder="7h40 o 460" value={v} onChange={(e) => p.onChange(e.target.value)} />
+          <input id={p.id} type="text" inputMode="text" placeholder={p.placeholder ?? '7h40'} value={v} onChange={(e) => p.onChange(e.target.value)} />
           <span className="unit">min</span>
         </div>
       );
@@ -78,7 +82,7 @@ export function ScalarInput(p: ScalarProps) {
       return (
         <div className="with-unit">
           <input id={p.id} type="text" inputMode={p.type === 'integer' ? 'numeric' : 'decimal'} value={v}
-            placeholder={p.min != null || p.max != null ? `${p.min ?? ''}–${p.max ?? ''}` : ''}
+            placeholder={p.placeholder ?? ''}
             onChange={(e) => p.onChange(e.target.value)} />
           {p.unit ? <span className="unit">{p.unit}</span> : null}
         </div>
