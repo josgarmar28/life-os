@@ -63,6 +63,10 @@ jobs:
       - name: Desplegar el conector MCP
         run: supabase functions deploy mcp --no-verify-jwt --project-ref "$REF"
 
+      # Avisos en el iPhone: la función comprueba ella misma el secreto de pg_cron o la sesión del dueño.
+      - name: Desplegar la función de avisos
+        run: supabase functions deploy push --no-verify-jwt --project-ref "$REF"
+
       - name: Clave pública del proyecto
         id: key
         run: |
