@@ -87,7 +87,7 @@ export function Week({ date }: { date?: string }) {
                 <li key={f.form.id}>
                   <span className="grow">{f.area.icon} {f.form.name}</span>
                   {f.form.cadence === 'daily' ? (
-                    <span className="dots" aria-label={`${f.days.length} de ${f.expected} días`}>
+                    <span className="dots" role="img" aria-label={`${f.days.length} de ${f.expected} días`}>
                       {w.dates.map((d, i) => <span key={d} className={f.days.includes(d) ? 'dot ok' : i < w.elapsed ? 'dot todo' : 'dot'} />)}
                     </span>
                   ) : null}

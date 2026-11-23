@@ -56,6 +56,7 @@ export function Login() {
 
   return (
     <main className="login">
+      <img src="/icon.svg" alt="" width="64" height="64" className="login-icon" />
       <h1>LIFE OS</h1>
       {mode === 'password' ? (
         <form onSubmit={(e) => { e.preventDefault(); void withPassword(); }}>

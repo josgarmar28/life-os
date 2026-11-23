@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { addDays, dueToday, formatDelta, formatStat, formatValue, localDate, summarizeForm, weekStart } from '@shared/stats.ts';
 import { CADENCE_LABEL } from '@shared/model.ts';
 import { loadEntries, useAsync, useStructure } from '../data';
@@ -49,8 +49,15 @@ export function Overview() {
   const morning = MORNING.flatMap(([area, slug]) => {
     const a = areas.find((x) => x.slug === area);
     const f = dueNow.find((x) => x.area_id === a?.id && x.slug === slug);
-    return f ? [{ path: `/a/${area}/${slug}/nuevo`, name: f.name }] : [];
+    return f ? [{ id: f.id, path: `/a/${area}/${slug}/nuevo`, name: f.name }] : [];
   });
+  // Número en el icono de la app (iPhone con la app en la pantalla de inicio): lo que queda por registrar hoy.
+  const badge = entries.data ? dueNow.length : null;
+  useEffect(() => {
+    if (badge === null) return;
+    const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+    void (badge ? nav.setAppBadge?.(badge) : nav.clearAppBadge?.())?.catch(() => {});
+  }, [badge]);
   const morningPath = morning.reduceRight((next, step) => `${step.path}?siguiente=${encodeURIComponent(next)}`, '/');
 
   const item = (f: (typeof forms)[number]) => {
@@ -90,7 +97,8 @@ export function Overview() {
               Empezar el día<span className="block small">{morning.map((m) => m.name).join(' y ')}</span>
             </Link>
           ) : null}
-          <ul className="todo">{dueNow.map(item)}</ul>
+          {/* Lo de la mañana ya va en el botón: aquí no se repite. */}
+          <ul className="todo">{dueNow.filter((f) => !morning.some((m) => m.id === f.id)).map(item)}</ul>
           {later.length ? (
             <details className="later">
               <summary className="muted small">Más adelante esta semana o este mes ({later.length})</summary>

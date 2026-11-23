@@ -18,7 +18,7 @@ import { Schedule } from './pages/Schedule';
 import { Training } from './pages/Training';
 import { Shopping } from './pages/Shopping';
 import { More } from './pages/More';
-import { PlansProvider } from './plans';
+import { PlansProvider, usePlans } from './plans';
 import { PageSkeleton } from './components/Skeleton';
 
 const OWNER_KEY = 'lifeos.owner';
@@ -84,6 +84,26 @@ export function App() {
 
 function Shell({ path }: { path: string }) {
   const s = useStructure();
+  const plans = usePlans();
+  // Al volver a la app tras un rato (el iPhone la deja en segundo plano toda la noche), se recalcula
+  // el día y se recargan los datos: nunca enseña el "hoy" de ayer.
+  const [, setResumed] = useState(0);
+  const { reload: reloadStructure } = s;
+  const { reload: reloadPlans } = plans;
+  useEffect(() => {
+    let hiddenAt = 0;
+    const on = () => {
+      if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+      if (hiddenAt && Date.now() - hiddenAt > 60_000) {
+        setResumed((n) => n + 1);
+        void reloadStructure();
+        void reloadPlans();
+        window.dispatchEvent(new Event('lifeos-entries'));
+      }
+    };
+    document.addEventListener('visibilitychange', on);
+    return () => document.removeEventListener('visibilitychange', on);
+  }, [reloadStructure, reloadPlans]);
   const [queued, setQueued] = useState(readOutbox().length);
   useEffect(() => {
     const on = () => setQueued(readOutbox().length);
