@@ -30,6 +30,10 @@ export function Toaster() {
     return () => window.removeEventListener(EVENT, on);
   }, []);
   useEffect(() => {
+    document.documentElement.classList.toggle('has-toast', !!t);
+    return () => document.documentElement.classList.remove('has-toast');
+  }, [t]);
+  useEffect(() => {
     if (!t) return;
     const id = t.id;
     const timer = setTimeout(() => { if (current?.id === id) hideToast(); }, t.ms ?? 6000);

@@ -354,6 +354,12 @@ ol.agenda li { scroll-margin-top: 80px; }
   box-shadow: 0 6px 24px rgb(0 0 0 / 0.25); animation: toast-in 0.18s ease-out; }
 .toast .btn { color: var(--bg); border-color: color-mix(in srgb, var(--bg) 40%, transparent); background: none; font-weight: 700; }
 body.focus .toast { bottom: calc(96px + env(safe-area-inset-bottom)); }
+/* El aviso no debe tapar nada: lo de debajo se puede tocar y la página deja sitio para subirlo por encima. */
+.toast { pointer-events: none; }
+.toast .btn { pointer-events: auto; }
+html.has-toast { scroll-padding-bottom: calc(144px + env(safe-area-inset-bottom)); }
+html.has-toast body { padding-bottom: calc(144px + env(safe-area-inset-bottom)); }
+html.has-toast body.focus { padding-bottom: calc(168px + env(safe-area-inset-bottom)); }
 @keyframes toast-in { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
 .start-day { display: block; text-align: center; margin: 4px 0 10px; padding: 10px 14px; line-height: 1.25; }

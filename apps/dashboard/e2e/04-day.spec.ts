@@ -1,11 +1,17 @@
 import { expect, test } from '@playwright/test';
-import { login, sql } from './helpers';
+import { ensureOwner, login, setOwnerPassword, sql } from './helpers';
 
 // Un día pasado sin registros: los demás recorridos ya registran cosas hoy, y no se pueden borrar (solo se anulan).
-const DAY = '2026-11-02';
+let DAY = '2026-10-01';
 const count = (slug: string) => sql(`select count(*) from api.entries e join core.form f on f.id = e.form_id where f.slug = '${slug}' and e.local_date = '${DAY}'`);
 
-test('empezar el día: peso y registro de mañana seguidos, aviso de guardado y deshacer', async ({ page }) => {
+test.beforeAll(async () => {
+  await ensureOwner();
+  await setOwnerPassword();
+});
+
+test('empezar el día: peso y registro de mañana seguidos, aviso de guardado y deshacer', async ({ page }, info) => {
+  DAY = `2026-10-${String(1 + info.repeatEachIndex).padStart(2, '0')}`;
   await page.clock.install({ time: new Date(`${DAY}T06:10:00+01:00`) });
   await login(page);
   await page.goto('/');
