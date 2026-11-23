@@ -375,3 +375,12 @@ html.has-toast body.focus { padding-bottom: calc(168px + env(safe-area-inset-bot
 .skel-tile { height: 78px; }
 @keyframes skel { from { opacity: 0.55; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+
+/* Avisos */
+.reminders { list-style: none; margin: 12px 0 0; padding: 0; }
+.reminders li { border-top: 1px solid var(--border); padding: 12px 0 4px; }
+.reminder-head { align-items: flex-start; flex-wrap: nowrap; }
+.reminder-head input[type="checkbox"] { width: 22px; height: 22px; margin-top: 2px; accent-color: var(--accent); }
+.reminder-head input[type="time"] { font: inherit; padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); min-height: 44px; }
+.reminders .day-chips .chip { min-width: 0; padding: 6px 0; }
+.chip:disabled, .reminder-head input:disabled { opacity: 0.45; }

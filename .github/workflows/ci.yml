@@ -60,6 +60,7 @@ jobs:
         with:
           deno-version: v2.x
       - run: deno check --config supabase/functions/mcp/deno.json supabase/functions/mcp/index.ts
+      - run: deno check --config supabase/functions/push/deno.json supabase/functions/push/index.ts
 
   e2e:
     name: Recorrido completo (Supabase local, navegador y conector)

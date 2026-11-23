@@ -4,6 +4,7 @@ import { useAsync, useStructure } from '../data';
 import { discard, flushOutbox, readOutbox, type Pending } from '../outbox';
 import { gymLabel, gymOf, HOME_GYM, PLAN_LABEL, parsePlanFile, planSummary, type PlanFileItem, type PlanKind, type PlanRow, type TrainingPlan } from '@shared/plans.ts';
 import { shortDate, usePlans } from '../plans';
+import { PushCard } from '../components/PushCard';
 
 interface Activity { ts: string; actor: string; action: string; table_name: string; row_id: string | null }
 
@@ -14,6 +15,7 @@ const ACTION_LABEL: Record<string, string> = {
   'field.create': 'Campo creado', 'field.update': 'Campo modificado', 'field.archived': 'Campo archivado', 'field.active': 'Campo recuperado',
   'plan.save': 'Plan guardado', 'plan.archived': 'Plan archivado', 'plan.active': 'Plan recuperado', 'week.save': 'Semana ajustada',
   'stock.record': 'Despensa actualizada', 'order.create': 'Pedido hecho', 'order.received': 'Pedido recibido', 'order.cancelled': 'Pedido cancelado',
+  'push.subscribe': 'Avisos activados', 'push.unsubscribe': 'Avisos desactivados', 'push.reminder': 'Hora de aviso cambiada',
   'proposal.create': 'Propuesta nueva', 'proposal.applied': 'Propuesta aprobada', 'proposal.rejected': 'Propuesta rechazada', 'proposal.failed': 'Propuesta fallida', 'proposal.expired': 'Propuesta caducada',
 };
 
@@ -67,6 +69,8 @@ export function Settings() {
           <button className="btn" onClick={() => void flushOutbox()}>Reintentar ahora</button>
         </section>
       ) : null}
+
+      <PushCard />
 
       <PlansCard />
 

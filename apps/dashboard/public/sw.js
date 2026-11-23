@@ -1,4 +1,4 @@
-// Service worker mínimo: guarda la "carcasa" de la app para abrirla sin conexión.
+// Service worker mínimo: guarda la "carcasa" de la app para abrirla sin conexión y muestra los avisos.
 // NUNCA guarda respuestas de Supabase (datos personales siempre frescos y fuera de la caché).
 const CACHE = 'lifeos-shell-v2';
 
@@ -46,4 +46,25 @@ self.addEventListener('fetch', (event) => {
       })),
     );
   }
+});
+
+// Avisos (web push): cada aviso que llega se muestra siempre (iOS retira el permiso si no).
+self.addEventListener('push', (event) => {
+  let m = { title: 'LIFE OS', body: '', url: '/' };
+  try { m = { ...m, ...event.data.json() }; } catch { /* aviso sin datos: se muestra el genérico */ }
+  event.waitUntil(self.registration.showNotification(m.title, {
+    body: m.body, tag: m.tag, renotify: Boolean(m.tag), icon: '/icon-512.png', badge: '/icon-512.png', data: { url: m.url },
+  }));
+});
+
+// Al tocar el aviso: abre (o enfoca) la app en la pantalla del aviso.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = new URL((event.notification.data && event.notification.data.url) || '/', self.location.origin).href;
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    for (const c of list) {
+      if (c.url.startsWith(self.location.origin) && 'focus' in c) return c.focus().then((w) => (w && 'navigate' in w ? w.navigate(url) : w));
+    }
+    return self.clients.openWindow(url);
+  }));
 });
