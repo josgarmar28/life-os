@@ -26,7 +26,7 @@ function deviceLabel(): string {
   if (/iPad/.test(ua)) return 'iPad';
   if (/Android/.test(ua)) return 'Android';
   if (/Macintosh/.test(ua)) return 'Mac';
-  return 'Ordenador';
+  return 'ordenador';
 }
 
 async function callPush<T>(action: 'key' | 'test'): Promise<T> {
