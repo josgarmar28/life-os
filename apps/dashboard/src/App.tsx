@@ -18,6 +18,10 @@ import { Schedule } from './pages/Schedule';
 import { Training } from './pages/Training';
 import { Shopping } from './pages/Shopping';
 import { More } from './pages/More';
+import { ClosetPage } from './wardrobe/ClosetPage';
+import { GarmentPage } from './wardrobe/GarmentPage';
+import { LaundryPage } from './wardrobe/LaundryPage';
+import { ClosetsManage } from './wardrobe/ClosetsManage';
 import { PlansProvider, usePlans } from './plans';
 import { PageSkeleton } from './components/Skeleton';
 
@@ -129,12 +133,17 @@ function Shell({ path }: { path: string }) {
   else if (path === '/compra') page = <Shopping tab="lista" />;
   else if (path === '/compra/despensa') page = <Shopping tab="despensa" />;
   else if (path === '/compra/pedidos') page = <Shopping tab="pedidos" />;
+  else if (path === '/armario') page = <ClosetPage />;
+  else if (path === '/armario/nueva') page = <GarmentPage key={path} />;
+  else if (path === '/armario/lavado') page = <LaundryPage />;
+  else if (path === '/armario/armarios') page = <ClosetsManage />;
+  else if ((m = match('/armario/p/:id', path))) page = <GarmentPage key={path} id={m.id} />;
   else if (path === '/mas') page = <More />;
   else if (path === '/propuestas') page = <Proposals />;
   else if (path === '/ajustes') page = <Settings />;
   else page = <main><p>Página no encontrada.</p><Link to="/">Ir al inicio</Link></main>;
 
-  const MORE = ['/mas', '/semana', '/a', '/gestion', '/propuestas', '/ajustes'];
+  const MORE = ['/mas', '/semana', '/armario', '/a', '/gestion', '/propuestas', '/ajustes'];
   const under = (to: string) => path === to || path.startsWith(`${to}/`);
   const isOn = (to: string) => (to === '/' ? path === '/' : to === '/mas' ? MORE.some(under) : under(to));
   const tab = (to: string, label: string, badge?: number) => (

@@ -4,6 +4,7 @@ import type { Area, Entry, Field, Form, Proposal } from '@shared/model.ts';
 import { byOrder } from '@shared/model.ts';
 import { api, fetchAll, rpc } from './supabase';
 import { isNetworkError } from './outbox';
+import { clearWardrobe } from './wardrobe/store';
 
 export interface Structure {
   areas: Area[];
@@ -121,6 +122,7 @@ const PERSONAL_KEYS = ['lifeos.plans', 'lifeos.workouts'];
 
 /** Borra los datos guardados en el teléfono (al cerrar sesión). */
 export function clearLocalData() {
+  clearWardrobe();
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const k = localStorage.key(i);

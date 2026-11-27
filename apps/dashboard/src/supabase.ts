@@ -63,6 +63,14 @@ export function explainError(e: unknown): string {
     [/immutable; archive it/, 'La clave y el tipo no se pueden cambiar: archiva el campo y crea otro'],
     [/gym period overlaps/, 'Ese periodo se solapa con otro: cambia las fechas o borra el otro'],
     [/gym_period_check/, 'La fecha final no puede ser anterior a la inicial (y como mucho un año)'],
+    [/unknown garment fields/, 'Hay un dato de la prenda que no se reconoce'],
+    [/name and category are required/, 'Elige al menos el tipo de prenda'],
+    [/closet still has garments/, 'El armario aún tiene prendas: muévelas antes de archivarlo'],
+    [/closet not found or archived/, 'Ese armario no existe o está archivado'],
+    [/garment not found/, 'No encuentro la prenda (puede estar archivada)'],
+    [/photo path must live/, 'La ruta de la foto no es válida'],
+    [/Payload too large|exceeded the maximum allowed size/i, 'La foto es demasiado grande'],
+    [/row-level security/i, 'Sin permiso para subir la foto'],
     [/Failed to fetch|NetworkError|Load failed/i, 'Sin conexión'],
   ];
   for (const [re, es] of rules) if (re.test(raw)) return raw.replace(re, es);

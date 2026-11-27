@@ -115,3 +115,10 @@ Verificado en local con Supabase Auth v2.186 (la versión actual): el flujo OAut
 - Que la pasarela de Supabase deje pasar el registro de Claude y el token sin clave `apikey` (es lo documentado; en local funciona).
 - Que `supabase db dump` llegue a la base desde GitHub por el pooler (la conexión directa del plan gratuito es solo IPv6).
 - Que la actividad diaria de `backup` evite la pausa del plan gratuito.
+
+## Armario virtual: comprobar tras el primer despliegue con la migración 2026-11-27
+En local el Storage de Supabase no corre (solo un `storage.objects` simulado), así que esto se comprueba en tu proyecto:
+1. Supabase → Storage: existe el cubo **wardrobe**, privado, con límite de 2 MB y solo JPEG/PNG.
+2. En el dashboard: Más → Armario → Añadir prenda con una foto. Debe verse la foto en la prenda y en la cuadrícula.
+3. Si «Sin permiso para subir la foto»: las políticas de `storage.objects` (`wardrobe_*`) no se aplicaron; avísame con el mensaje exacto.
+4. Las fotos **no** entran en la copia diaria cifrada (decisión del 27-nov).
