@@ -90,20 +90,8 @@ export interface ShoppingList {
   other: NeedLine[];
 }
 
-/**
- * Lo que falta para el pedido que llega el día `delivery` y cubre `cover` días más `buffer` de margen.
- * Un faltante menor del 10 % de un envase no se compra.
- */
-export function shoppingList(plan: MealsPlan, stock: StockLine[], today: string, delivery: string, opts: { cover?: number; buffer?: number; away?: Set<string> } = {}): ShoppingList {
-  const cover = opts.cover ?? plan.cover_days ?? 14;
-  const buffer = opts.buffer ?? plan.buffer_days ?? 2;
-  const away = opts.away ?? new Set<string>();
-  const until = addDays(delivery, cover + buffer - 1);
-  const before = delivery > addDays(today, 1) ? useBetween(plan, addDays(today, 1), addDays(delivery, -1), away) : new Map<string, number>();
-  const during = useBetween(plan, delivery, until, away);
-  const mainShop = plan.shop;
-  const lines: NeedLine[] = [];
-  const other: NeedLine[] = [];
+function needLines(stock: StockLine[], before: Map<string, number>, during: Map<string, number>): NeedLine[] {
+  const out: NeedLine[] = [];
   for (const s of stock) {
     const p = s.product;
     const need = during.get(p.key) ?? 0;
@@ -112,16 +100,59 @@ export function shoppingList(plan: MealsPlan, stock: StockLine[], today: string,
     const atDelivery = Math.max(0, now - (before.get(p.key) ?? 0));
     const missing = Math.max(0, need - atDelivery);
     const packages = missing <= p.package * 0.1 ? 0 : Math.ceil(missing / p.package - 0.1);
-    const line: NeedLine = {
+    out.push({
       product: p, need, atDelivery, missing, packages,
       cost: p.price !== undefined ? Math.round(packages * p.price * 100) / 100 : null,
       unknown: s.qty === null,
-    };
-    if (mainShop && p.shop && p.shop !== mainShop) other.push(line);
-    else lines.push(line);
+    });
   }
-  const total = Math.round(lines.reduce((a, l) => a + (l.cost ?? 0), 0) * 100) / 100;
-  return { delivery, until, lines, total, other };
+  return out;
+}
+
+const sumCost = (lines: NeedLine[]) => Math.round(lines.reduce((a, l) => a + (l.cost ?? 0), 0) * 100) / 100;
+const usedBefore = (plan: MealsPlan, today: string, day: string, away: Set<string>) =>
+  (day > addDays(today, 1) ? useBetween(plan, addDays(today, 1), addDays(day, -1), away) : new Map<string, number>());
+
+/** Productos frescos que se compran en la tienda cada semana, fuera del pedido. */
+export const boughtInStore = (p: Product) => p.buy === 'tienda';
+
+/**
+ * Lo que falta para el pedido que llega el día `delivery` y cubre `cover` días más `buffer` de margen.
+ * Un faltante menor del 10 % de un envase no se compra. Los productos de tienda van en storeList.
+ */
+export function shoppingList(plan: MealsPlan, stock: StockLine[], today: string, delivery: string, opts: { cover?: number; buffer?: number; away?: Set<string> } = {}): ShoppingList {
+  const cover = opts.cover ?? plan.cover_days ?? 14;
+  const buffer = opts.buffer ?? plan.buffer_days ?? 2;
+  const away = opts.away ?? new Set<string>();
+  const until = addDays(delivery, cover + buffer - 1);
+  const all = needLines(stock.filter((s) => !boughtInStore(s.product)), usedBefore(plan, today, delivery, away), useBetween(plan, delivery, until, away));
+  const mainShop = plan.shop;
+  const isOther = (l: NeedLine) => Boolean(mainShop && l.product.shop && l.product.shop !== mainShop);
+  const lines = all.filter((l) => !isOther(l));
+  return { delivery, until, lines, total: sumCost(lines), other: all.filter(isOther) };
+}
+
+export interface StoreList {
+  day: string;
+  until: string;
+  lines: NeedLine[];
+  total: number;
+}
+
+/**
+ * Lo que hay que comprar en la tienda el día `day` (hoy o después) para las comidas de ese día y los
+ * siguientes hasta la próxima compra (store_every_days, 7 por defecto). El stock de hoy ya descuenta
+ * las comidas de hoy, así que si la compra es hoy se suman de vuelta: lo comprado hoy también es para hoy.
+ */
+export function storeList(plan: MealsPlan, stock: StockLine[], today: string, day: string, opts: { every?: number; away?: Set<string> } = {}): StoreList {
+  const every = opts.every ?? plan.store_every_days ?? 7;
+  const away = opts.away ?? new Set<string>();
+  const until = addDays(day, every - 1);
+  const before = day > today
+    ? (day > addDays(today, 1) ? useBetween(plan, addDays(today, 1), addDays(day, -1), away) : new Map<string, number>())
+    : new Map([...useBetween(plan, today, today, away)].map(([k, v]) => [k, -v] as [string, number]));
+  const lines = needLines(stock.filter((s) => boughtInStore(s.product)), before, useBetween(plan, day, until, away));
+  return { day, until, lines, total: sumCost(lines) };
 }
 
 /** "1,5 envases (450 g)" o "8 ud". */

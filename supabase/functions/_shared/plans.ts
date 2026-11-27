@@ -146,6 +146,8 @@ export interface Product {
   unit: Unit;
   price?: number;
   storage: Storage;
+  /** Dónde se compra: en el pedido (por defecto) o en la tienda cada semana, por ser fresco. */
+  buy?: 'pedido' | 'tienda';
   notes?: string;
 }
 
@@ -189,6 +191,8 @@ export interface MealsPlan {
   /** Días que cubre cada pedido y margen de seguridad. */
   cover_days?: number;
   buffer_days?: number;
+  /** Cada cuántos días se compran en la tienda los productos con buy "tienda" (por defecto, 7). */
+  store_every_days?: number;
   notes?: string[];
 }
 
@@ -305,6 +309,7 @@ export function validatePlan(kind: PlanKind, content: unknown): string[] {
       if (!['g', 'ml', 'ud'].includes(String(p.unit))) e.push(`${at} (${String(p.name)}): unidad g, ml o ud`);
       if (!['nevera', 'congelador', 'despensa'].includes(String(p.storage))) e.push(`${at} (${String(p.name)}): nevera, congelador o despensa`);
       if (p.price !== undefined && !(isNum(p.price) && p.price >= 0)) e.push(`${at} (${String(p.name)}): precio ≥ 0`);
+      if (p.buy !== undefined && p.buy !== 'pedido' && p.buy !== 'tienda') e.push(`${at} (${String(p.name)}): buy "pedido" o "tienda"`);
       pk.add(String(p.key));
     });
     uniqueKeys(products.filter(isObj), 'key', 'Productos', e);
@@ -346,6 +351,7 @@ export function validatePlan(kind: PlanKind, content: unknown): string[] {
     for (const k of ['min_order', 'cover_days', 'buffer_days'] as const) {
       if (content[k] !== undefined && !(isNum(content[k]) && (content[k] as number) >= 0)) e.push(`${k} ≥ 0`);
     }
+    if (content.store_every_days !== undefined && !(Number.isInteger(content.store_every_days) && (content.store_every_days as number) >= 1)) e.push('store_every_days: días ≥ 1');
   }
   return e;
 }
@@ -393,6 +399,10 @@ export function planSummary(kind: PlanKind, content: unknown): string[] {
       `${m.products?.length ?? 0} productos, ${m.recipes?.length ?? 0} recetas, ${m.days?.length ?? 0} días de menú`,
       ...(m.cooking ?? []).map((c) => `Cocina: ${c.name} (${c.items.map((i) => `${m.recipes.find((r) => r.key === i.recipe)?.name ?? i.recipe} × ${i.servings}`).join(', ')})`),
       `Pedido: cada ${m.cover_days ?? 14} días + ${m.buffer_days ?? 2} de margen${m.min_order ? `, mínimo ${m.min_order}` : ''}`,
+      ...(() => {
+        const fresh = (m.products ?? []).filter((p) => p.buy === 'tienda');
+        return fresh.length ? [`En tienda cada ${m.store_every_days ?? 7} días: ${fresh.map((p) => p.name).join(', ')}`] : [];
+      })(),
     ];
   }
   const blocks = (Array.isArray(content.blocks) ? content.blocks : []) as ScheduleBlock[];

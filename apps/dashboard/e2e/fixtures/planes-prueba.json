@@ -66,7 +66,7 @@
         "products": [
           { "key": "pasta", "name": "Pasta", "shop": "tienda", "package": 500, "unit": "g", "price": 1.5, "storage": "despensa" },
           { "key": "tomate", "name": "Tomate triturado", "shop": "tienda", "package": 400, "unit": "g", "price": 1, "storage": "despensa" },
-          { "key": "yogur", "name": "Yogur", "shop": "tienda", "package": 125, "unit": "g", "package_label": "botes", "price": 0.5, "storage": "nevera" },
+          { "key": "yogur", "name": "Yogur", "shop": "tienda", "package": 125, "unit": "g", "package_label": "botes", "price": 0.5, "storage": "nevera", "buy": "tienda" },
           { "key": "verdura", "name": "Verdura congelada", "shop": "tienda", "package": 750, "unit": "g", "price": 3, "storage": "congelador" },
           { "key": "proteina", "name": "Proteína en polvo", "shop": "online", "package": 1000, "unit": "g", "price": 25, "storage": "despensa" }
         ],

@@ -11,7 +11,7 @@ import {
   agendaFor, awayDates, gymForDate, gymOf, HOME_GYM, isoWeekday, localTime, nowAndNext, PLAN_LABEL, planFor, planSummary, trainingGyms, validatePlan, weekSettings, WEEKDAY_NAME,
   type GymPeriod, type MealsPlan, type PlanKind, type PlanRow, type SchedulePlan, type TrainingPlan, type WeekRow,
 } from '../_shared/plans.ts';
-import { estimateStock, formatQty, shoppingList, type StockMove } from '../_shared/shopping.ts';
+import { boughtInStore, estimateStock, formatQty, shoppingList, storeList, type StockMove } from '../_shared/shopping.ts';
 import { weekStart } from '../_shared/stats.ts';
 
 export const SERVER_INFO = { name: 'lifeos', title: 'LIFE OS', version: '0.3.0' };
@@ -337,10 +337,13 @@ export const TOOLS: Tool[] = [
   {
     name: 'lifeos_pantry',
     title: 'Despensa y lista de la compra',
-    description: 'Stock estimado de cada producto del menú (último recuento + compras − lo que el menú gasta cada día, sin contar los días fuera de casa) y la lista de lo que falta para un pedido con entrega en una fecha, en envases y con coste. Lo pedido y aún no recibido cuenta como si llegara en su fecha.',
+    description: 'Stock estimado de cada producto del menú (último recuento + compras − lo que el menú gasta cada día, sin contar los días fuera de casa) y la lista de lo que falta para un pedido con entrega en una fecha, en envases y con coste. Lo pedido y aún no recibido cuenta como si llegara en su fecha. Los productos con buy "tienda" (frescos) no van en el pedido: salen en store, la compra semanal en tienda para el día store_day.',
     inputSchema: {
       type: 'object',
-      properties: { delivery: { type: 'string', description: 'Día de entrega del próximo pedido, YYYY-MM-DD (por defecto, dentro de 3 días).' } },
+      properties: {
+        delivery: { type: 'string', description: 'Día de entrega del próximo pedido, YYYY-MM-DD (por defecto, dentro de 3 días).' },
+        store_day: { type: 'string', description: 'Día de la compra de frescos en tienda, YYYY-MM-DD (por defecto, hoy, o el primer día del menú si aún no ha empezado).' },
+      },
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
@@ -349,6 +352,8 @@ export const TOOLS: Tool[] = [
       const today = localDate(now, tz);
       const delivery = str(args.delivery, 'delivery') ?? addDays(today, 3);
       if (!isDate(delivery) || delivery <= today) throw new ToolError('"delivery" debe ser una fecha futura YYYY-MM-DD.');
+      const storeDay = str(args.store_day, 'store_day');
+      if (storeDay !== undefined && (!isDate(storeDay) || storeDay < today)) throw new ToolError('"store_day" debe ser hoy o una fecha futura YYYY-MM-DD.');
       const [plans, weeks, rawMoves, orders] = await Promise.all([api.plans(), api.weeks(), api.stockMoves(), api.orders()]);
       const meals = planFor<MealsPlan>(plans, 'meals', today);
       if (!meals) return { note: 'Aún no hay menú importado en el dashboard.' };
@@ -360,6 +365,8 @@ export const TOOLS: Tool[] = [
       const clamp = (m: StockMove) => (m.local_date > from ? { ...m, local_date: from } : m);
       const stock = estimateStock(meals.content, [...moves, ...incoming].map(clamp), from, away);
       const list = shoppingList(meals.content, stock, from, delivery > from ? delivery : addDays(from, 1), { away });
+      const day = storeDay ?? (meals.preview ? meals.row.valid_from : today);
+      const store = meals.content.products.some(boughtInStore) ? storeList(meals.content, stock, from, day > from ? day : from, { away }) : null;
       const line = (l: typeof list.lines[number]) => ({ product: l.product.key, name: l.product.name, packages: l.packages, need: formatQty(l.product, l.need), at_delivery: l.unknown ? 'sin contar' : formatQty(l.product, l.atDelivery), cost: l.cost });
       return {
         today, ...(meals.preview ? { note: `El menú empieza el ${meals.row.valid_from}: hasta entonces no se descuenta nada.` } : {}),
@@ -369,6 +376,7 @@ export const TOOLS: Tool[] = [
           lines: list.lines.filter((l) => l.packages > 0).map(line), other_shops: list.other.filter((l) => l.packages > 0).map(line),
           pending_orders: orders.filter((o) => o.status === 'ordered').map((o) => ({ delivery_date: o.delivery_date, items: o.items.length })),
         },
+        ...(store ? { store: { day: store.day, covers_until: store.until, every_days: meals.content.store_every_days ?? 7, total: store.total, lines: store.lines.filter((l) => l.packages > 0).map(line) } } : {}),
       };
     },
   },
