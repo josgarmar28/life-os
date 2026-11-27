@@ -3,6 +3,7 @@ import { Link } from '../router';
 
 const ITEMS = [
   { to: '/semana', icon: '📊', label: 'Semana', hint: 'Resumen y revisión semanal' },
+  { to: '/armario', icon: '👕', label: 'Armario', hint: 'Prendas con foto, dos armarios, lavado y búsqueda' },
   { to: '/a', icon: '🗂️', label: 'Áreas', hint: 'Registros y cuestionarios de cada área' },
   { to: '/propuestas', icon: '💡', label: 'Propuestas de Claude', hint: 'Cambios que esperan tu aprobación' },
   { to: '/ajustes', icon: '⚙️', label: 'Ajustes', hint: 'Planes, contraseña, conector y datos' },

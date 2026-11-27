@@ -77,6 +77,17 @@ grant usage on schema auth to anon, authenticated, service_role;
 grant execute on all functions in schema auth to anon, authenticated, service_role;
 SQL
 
+echo "== Esquema de almacenamiento simulado (el Storage real lo pone Supabase; aquí solo hace falta para las migraciones)"
+psql_run <<'SQL'
+create schema storage;
+grant usage on schema storage to anon, authenticated, service_role;
+create table storage.buckets (id text primary key, name text not null, public boolean not null default false, file_size_limit bigint, allowed_mime_types text[]);
+create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text references storage.buckets (id), name text, owner uuid, created_at timestamptz not null default now());
+alter table storage.objects enable row level security;
+grant select, insert, update, delete on storage.objects to authenticated;
+grant select on storage.buckets to authenticated;
+SQL
+
 echo "== Migraciones de LIFE OS y áreas iniciales"
 for f in $(ls "$ROOT"/supabase/migrations/*.sql | sort); do psql_run -o /dev/null -f "$f"; done
 psql_run -o /dev/null -f "$ROOT/supabase/seed/areas-iniciales.sql"

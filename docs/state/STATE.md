@@ -15,6 +15,7 @@ Reside en Pully (Suiza). Gimnasio: Elevate Gym. iPhone. Reloj Amazfit (Zepp). B�
 - **Aceptadas 18-oct (ADR-0002):** dashboard único con motor de áreas genérico, entrada de datos solo en el dashboard, conector MCP con OAuth de Supabase, plan gratuito con copia cifrada propia (sustituye D-02), arranque en enero sin histórico, "eliminar" = archivar.
 - **19-oct (ADR-0002 D-18 revisada, D-23, D-24):** acceso con contraseña y enlace por correo la primera vez; claves nuevas de Supabase; propuestas de Claude por nombre corto y con campos dentro.
 - **22-nov (ADR-0002 D-25 a D-28, fusionado y desplegado):** horario, rutina y menú como planes versionados; despensa estimada con el menú y lista de la compra; semana con teletrabajo y días fuera; modo entreno con sugerencia de progresión.
+- **27-nov (ADR-0003 D-30 a D-36):** armario virtual con dos armarios, fotos privadas normalizadas, lavado y búsqueda (fase 1, a la espera de su aprobación del PR).
 - **22-nov (ADR-0002 D-29, a la espera de su aprobación del PR):** rutina por gimnasio (La Zona en España, en mantenimiento) y periodos en otro gimnasio.
 
 ## Arquitectura vigente
@@ -31,6 +32,7 @@ Ver SPEC-002 §3. Resumen: app de Claude + conector MCP propio (interactivo) y r
 | Motor de áreas (`core`, migraciones 2026-10-18 y 2026-10-19) y áreas iniciales | **Escrito y probado en PostgreSQL 16 local** (pruebas 40, 50 y 60). **No aplicado** |
 | Dashboard (`apps/dashboard`, PWA) | **Escrito y probado de principio a fin** en local con Supabase Auth real (Playwright, vista de iPhone: acceso, registros, gestión, sin cobertura, semana). **No desplegado** |
 | Horario, modo entreno y compra (migración 2026-11-22) | **Escritos y probados** (prueba SQL 70, unitarias y de principio a fin). Sus planes reales están en su carpeta privada (`life-os/dashboard/planes/`), no en el repositorio. **No aplicado** |
+| Armario virtual, fase 1 (migración 2026-11-27, `apps/dashboard/src/wardrobe`) | **Escrito y probado** (prueba SQL 95, unitarias y de principio a fin con un doble del Storage). **No aplicado**; el Storage real sin probar (ADR-0003) |
 | Conector MCP (`supabase/functions/mcp`) | **Escrito y probado de principio a fin**: registro dinámico, OAuth con consentimiento, `client_id` en el token, lectura, registro, revisión semanal y propuesta aprobada. **No desplegado** |
 | Workflows `deploy`, `bootstrap`, `backup` | Escritos; manuales salvo la copia diaria. **Sin ejecutar** (faltan sus secretos) |
 | Integraciones (Zepp, Calendar) | **No existen** |
@@ -47,6 +49,7 @@ Ver SPEC-002 §3. Resumen: app de Claude + conector MCP propio (interactivo) y r
 - [x] Acceso con contraseña, uso sin cobertura, vista Semana, revisión semanal de Claude y pruebas de principio a fin (PR del 19-oct)
 - [x] Horario, modo entreno y compra (PR #5): fusionado y desplegado el 22-nov
 - [ ] Segundo gimnasio y periodos (PR del 22-nov): revisión y aprobación del usuario
+- [ ] Armario virtual fase 1 (PR del 27-nov): revisión y aprobación del usuario; fases 2 (conector) y 3 (conjuntos, maleta, huecos) pendientes
 - [ ] Puesta en marcha por el usuario: `docs/runbooks/dashboard-puesta-en-marcha.md`
 - [ ] Arranque de uso en enero de 2027 (sistema vacío)
 - [ ] Más adelante: importación del CSV de Zepp a `health`
