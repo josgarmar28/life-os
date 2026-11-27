@@ -204,9 +204,11 @@ describe('despensa y compra', () => {
   });
 
   it('lista: lo que falta hasta el siguiente pedido, en envases, y la otra tienda aparte', () => {
-    const stock = estimateStock(meals, [move('pasta', 'count', 1000, '2027-01-11'), move('yogur', 'count', 1000, '2027-01-11')], '2027-01-11');
+    // Todo por pedido (el archivo de prueba compra el yogur en tienda; eso se prueba abajo).
+    const all: MealsPlan = { ...meals, products: meals.products.map(({ buy: _buy, ...p }) => p) };
+    const stock = estimateStock(all, [move('pasta', 'count', 1000, '2027-01-11'), move('yogur', 'count', 1000, '2027-01-11')], '2027-01-11');
     // Entrega el jueves 14: cubre 7 días + 1 de margen (14-21). Martes y miércoles se gastan 400 g de pasta.
-    const list = shoppingList(meals, stock, '2027-01-11', '2027-01-14');
+    const list = shoppingList(all, stock, '2027-01-11', '2027-01-14');
     const by = (k: string) => list.lines.find((l) => l.product.key === k)!;
     expect(list.until).toBe('2027-01-21');
     expect(by('pasta')).toMatchObject({ need: 1600, atDelivery: 600, missing: 1000, packages: 2, cost: 3 });
@@ -218,7 +220,8 @@ describe('despensa y compra', () => {
   });
 
   it('frescos en tienda: fuera del pedido y en su propia lista semanal', () => {
-    const fresh: MealsPlan = { ...meals, products: meals.products.map((p) => (p.key === 'yogur' ? { ...p, buy: 'tienda' as const } : p)) };
+    const fresh = meals;
+    expect(fresh.products.filter((p) => p.buy === 'tienda').map((p) => p.key)).toEqual(['yogur']);
     expect(validatePlan('meals', fresh)).toEqual([]);
     expect(validatePlan('meals', { ...fresh, store_every_days: 0 })).toContain('store_every_days: días ≥ 1');
     expect(validatePlan('meals', { ...fresh, products: [{ ...fresh.products[0], buy: 'super' }] })).toContain(`Producto 1 (${fresh.products[0].name}): buy "pedido" o "tienda"`);
