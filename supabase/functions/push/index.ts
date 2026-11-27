@@ -88,10 +88,13 @@ async function deliver(c: Config, messages: PushMessage[]) {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return json(405, { error: 'method not allowed' });
+  // Paso en curso: si algo falla, la respuesta dice dónde (sin datos ni claves) para poder arreglarlo.
+  let step = 'inicio';
   try {
     // 1) pg_cron
     const cron = req.headers.get('x-cron-secret');
     if (cron) {
+      step = 'reloj';
       const c = await rpc<Config>('push_config', {});
       if (!sameSecret(cron, c.cron_secret)) return json(401, { error: 'unauthorized' });
       if (!c.public_key || !c.private_jwk || !c.subscriptions?.length) return json(200, { sent: [] });
@@ -102,15 +105,20 @@ Deno.serve(async (req) => {
     // 2) El dashboard, con la sesión del dueño.
     const token = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
     if (!token) return json(401, { error: 'unauthorized' });
-    const who = await rpc<{ is_owner: boolean; actor: string }>('whoami', {}, token).catch(() => null);
-    if (!who?.is_owner || who.actor !== 'owner') return json(403, { error: 'forbidden' });
+    step = 'sesión';
+    const who = await rpc<{ is_owner: boolean; actor: string }>('whoami', {}, token).catch((e) => { console.error(e); return null; });
+    if (!who) return json(401, { error: 'unauthorized', step: 'sesión' });
+    if (!who.is_owner || who.actor !== 'owner') return json(403, { error: 'forbidden', step: 'dueño' });
 
     const { action } = await req.json().catch(() => ({})) as { action?: string };
     const origin = req.headers.get('origin');
     const site = origin && /^https:\/\//.test(origin) ? origin : null;
     if (action === 'key') {
+      step = 'leer configuración';
       let c = await rpc<Config>('push_config', {});
+      step = 'crear claves';
       const fresh = c.public_key ? null : await generateVapidKeys();
+      step = 'guardar claves';
       c = await rpc<Config>('push_init', {
         p_public_key: fresh?.publicKey ?? null,
         p_private_jwk: fresh?.privateJwk ?? null,
@@ -120,6 +128,7 @@ Deno.serve(async (req) => {
       return json(200, { public_key: c.public_key });
     }
     if (action === 'test') {
+      step = 'prueba';
       const c = await rpc<Config>('push_config', {});
       if (!c.public_key || !c.private_jwk) return json(409, { error: 'sin claves: activa los avisos primero' });
       const sent = await deliver(c, [{ title: 'LIFE OS', body: 'Avisos activados ✓', url: '/ajustes', tag: 'prueba' }]);
@@ -127,7 +136,9 @@ Deno.serve(async (req) => {
     }
     return json(400, { error: 'acción desconocida' });
   } catch (e) {
-    console.error(e);
-    return json(500, { error: 'error interno' });
+    console.error(step, e);
+    // Solo el paso y el código HTTP de la base de datos: nunca el texto completo, que podría llevar datos.
+    const code = e instanceof Error ? (e.message.match(/: (\d{3}) /)?.[1] ?? null) : null;
+    return json(500, { error: 'error interno', step, code });
   }
 });
