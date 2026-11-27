@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { addDays, localDate } from '@shared/stats.ts';
 import { awayDates, isoWeekday, STORAGE_LABEL, weekSettings, type MealsPlan, type Product, type Storage } from '@shared/plans.ts';
-import { estimateStock, formatQty, shoppingList, type NeedLine, type StockLine, type StockMove } from '@shared/shopping.ts';
+import { boughtInStore, estimateStock, formatQty, shoppingList, storeList, type NeedLine, type StockLine, type StockMove } from '@shared/shopping.ts';
 import { weekStart } from '@shared/stats.ts';
 import { useStructure } from '../data';
 import { Link } from '../router';
@@ -117,6 +117,7 @@ function ListTab({ meals, today, preview }: { meals: MealsPlan; today: string; p
   const groups = STORAGES.map((st) => ({ st, lines: shown.filter((l) => l.product.storage === st && packs(l) > 0) })).filter((g) => g.lines.length);
   const notNeeded = shown.filter((l) => packs(l) <= 0);
   const pendingOrders = p.orders.filter((o) => o.status === 'ordered' && o.delivery_date <= delivery);
+  const hasStore = meals.products.some(boughtInStore);
 
   const row = (l: NeedLine) => {
     const done = inCart.includes(l.product.key);
@@ -169,7 +170,8 @@ function ListTab({ meals, today, preview }: { meals: MealsPlan; today: string; p
       </section>
 
       <section className="card">
-        <div className="card-head"><h2>Falta</h2><span className="muted small">{chosen.length} de {list.lines.length}</span></div>
+        <div className="card-head"><h2>{hasStore ? `Pedido ${meals.shop ?? 'online'}` : 'Falta'}</h2><span className="muted small">{chosen.length} de {list.lines.length}</span></div>
+        {hasStore ? <p className="muted small">Solo lo que aguanta. Los frescos van aparte, en la compra semanal en tienda.</p> : null}
         {groups.map((g) => (
           <div key={g.st} className="shop-group">
             <h3>{STORAGE_LABEL[g.st]} <span className="muted small">({g.lines.length})</span></h3>
@@ -204,7 +206,82 @@ function ListTab({ meals, today, preview }: { meals: MealsPlan; today: string; p
           </ul>
         </section>
       ) : null}
+
+      {hasStore ? <StoreCard meals={meals} today={today} from={from} stock={stock} startOfMenu={startOfMenu} /> : null}
     </>
+  );
+}
+
+/** Compra semanal en tienda de los frescos (buy "tienda"): lo que hace falta hasta la siguiente. */
+function StoreCard({ meals, today, from, stock, startOfMenu }: { meals: MealsPlan; today: string; from: string; stock: StockLine[]; startOfMenu: string | null }) {
+  const p = usePlans();
+  const [day, setDay] = useState(() => (startOfMenu && startOfMenu > today ? startOfMenu : today));
+  const every = meals.store_every_days ?? 7;
+  const away = useMemo(() => awayDates(p.weeks, today, addDays(day, every + 7)), [p.weeks, today, day, every]);
+  const list = useMemo(() => storeList(meals, stock, from, day < from ? from : day, { away }), [meals, stock, from, day, away]);
+  const [edits, setEdits] = useState<Record<string, number>>({});
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [reqId, setReqId] = useState(() => crypto.randomUUID());
+
+  const packs = (l: NeedLine) => edits[l.product.key] ?? l.packages;
+  const chosen = list.lines.filter((l) => packs(l) > 0);
+  const total = Math.round(chosen.reduce((a, l) => a + packs(l) * (l.product.price ?? 0), 0) * 100) / 100;
+  const shown = [...list.lines].sort((a, b) => Number(packs(b) > 0) - Number(packs(a) > 0) || a.product.name.localeCompare(b.product.name, 'es'));
+  const isToday = day === today;
+
+  async function bought() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const moves = chosen.map((l) => ({ product: l.product.key, kind: 'purchase' as const, qty: packs(l) * l.product.package, note: 'tienda' }));
+      await rpc('record_stock', { p_moves: moves, p_request_id: reqId });
+      await p.reload();
+      setEdits({});
+      setReqId(crypto.randomUUID());
+      setMsg({ ok: true, text: `Compra guardada en la despensa (${moves.length} ${moves.length === 1 ? 'producto' : 'productos'}).` });
+    } catch (e) {
+      setMsg({ ok: false, text: explainError(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copy() {
+    const text = chosen.map((l) => `${packs(l)} × ${l.product.store_name ?? l.product.name}`).join('\n');
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* sin portapapeles */ }
+  }
+
+  return (
+    <section className="card">
+      <div className="card-head"><h2>Frescos en tienda</h2><span className="muted small">cada {every} días</span></div>
+      <label>Día de la compra<input type="date" value={day} min={today} onChange={(e) => { if (e.target.value) { setDay(e.target.value); setEdits({}); } }} /></label>
+      <p className="muted small">Para comer del {shortDate(list.day, { day: 'numeric', month: 'short' })} al {shortDate(list.until, { day: 'numeric', month: 'short' })}{away.size ? ', sin contar los días fuera de casa' : ''}.</p>
+      {shown.length ? (
+        <ul className="list shop-list">
+          {shown.map((l) => (
+            <li key={l.product.key} className={packs(l) > 0 ? '' : 'dim'}>
+              <span className="shop-name">{l.product.name}</span>
+              <span className="shop-sub muted small">{l.unknown ? 'sin contar · ' : ''}{packs(l) > 0 ? `faltan ${formatQty(l.product, l.missing)}` : 'hay suficiente'}</span>
+              <span className="stepper" role="group" aria-label={l.product.name}>
+                <button className="btn small ghost" aria-label={`Menos ${l.product.name}`} disabled={packs(l) <= 0} onClick={() => setEdits({ ...edits, [l.product.key]: Math.max(0, packs(l) - 1) })}>−</button>
+                <span className="qty">{packs(l)}</span>
+                <button className="btn small ghost" aria-label={`Más ${l.product.name}`} onClick={() => setEdits({ ...edits, [l.product.key]: packs(l) + 1 })}>+</button>
+              </span>
+              <span className="price small">{l.product.price !== undefined ? fmtChf(packs(l) * l.product.price) : ''}</span>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="muted small">El menú no usa frescos esos días.</p>}
+      <p className="total"><span className="grow">Total estimado</span><strong>{fmtChf(total)}</strong></p>
+      <div className="row gap">
+        <button className="btn primary grow" disabled={busy || !chosen.length || !isToday} onClick={() => void bought()}>Lo he comprado</button>
+        <button className="btn ghost" disabled={!chosen.length} onClick={() => void copy()}>{copied ? 'Copiada' : 'Copiar lista'}</button>
+      </div>
+      {!isToday && chosen.length ? <p className="muted small">«Lo he comprado» se activa ese día y suma lo comprado a la despensa.</p> : null}
+      {msg ? <p className={msg.ok ? 'ok-line small' : 'error'}>{msg.text}</p> : null}
+    </section>
   );
 }
 

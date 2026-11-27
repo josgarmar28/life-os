@@ -189,8 +189,16 @@ test('compra: contar la despensa, lista de lo que falta, pedir y recibir', async
   await expect(card(page, 'Despensa').locator('li', { hasText: 'Pasta' })).toContainText(/contado el/);
 
   await page.getByRole('navigation', { name: 'Compra' }).getByRole('link', { name: 'Lista' }).click();
-  const falta = card(page, 'Falta');
+  const falta = card(page, 'Pedido tienda');
   await expect(falta).toContainText('Tomate triturado');
+  await expect(falta).not.toContainText('Yogur');
+  // Los frescos van aparte: compra en tienda para 7 días. Hay 4 botes y se come 1 al día, así que faltan 2 botes.
+  const frescos = card(page, 'Frescos en tienda');
+  await expect(frescos.getByRole('group', { name: 'Yogur' }).locator('.qty')).toHaveText('2');
+  await frescos.getByRole('button', { name: 'Lo he comprado' }).click();
+  await expect(page.getByText('Compra guardada en la despensa (1 producto).')).toBeVisible();
+  expect(sql(`select product || '=' || qty::int || ' ' || note from core.stock_move where kind = 'purchase'`)).toBe('yogur=250 tienda');
+  await expect(frescos.getByRole('group', { name: 'Yogur' }).locator('.qty')).toHaveText('0');
   await expect(page.getByRole('heading', { name: 'Otras tiendas (pedido aparte)' })).toBeVisible();
   const tomate = page.getByRole('group', { name: 'Tomate triturado' });
   const before = Number(await tomate.locator('.qty').textContent());
@@ -210,5 +218,5 @@ test('compra: contar la despensa, lista de lo que falta, pedir y recibir', async
   await expect(page.getByText('No hay pedidos en camino.', { exact: false })).toBeVisible();
   expect(sql(`select status from core.shopping_order`)).toBe('received');
   expect(sql(`select count(*) from core.stock_move where kind = 'purchase' and product = 'tomate'`)).toBe('0');
-  expect(Number(sql(`select count(*) from core.stock_move where kind = 'purchase'`))).toBeGreaterThan(0);
+  expect(Number(sql(`select count(*) from core.stock_move where kind = 'purchase' and note <> 'tienda'`))).toBeGreaterThan(0);
 });

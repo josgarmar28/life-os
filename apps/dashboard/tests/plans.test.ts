@@ -6,7 +6,7 @@ import {
   type MealsPlan, type PlanRow, type SchedulePlan, type TrainingPlan,
 } from '@shared/plans.ts';
 import { exposuresFor, machineChanged, readiness, setsToday, suggest, type Exposure } from '@shared/progression.ts';
-import { estimateStock, shoppingList, useBetween, type StockMove } from '@shared/shopping.ts';
+import { estimateStock, shoppingList, storeList, useBetween, type StockMove } from '@shared/shopping.ts';
 
 const file = JSON.parse(readFileSync(new URL('../e2e/fixtures/planes-prueba.json', import.meta.url), 'utf8'));
 const parsed = parsePlanFile(file);
@@ -215,5 +215,23 @@ describe('despensa y compra', () => {
     expect(list.other.map((l) => l.product.key)).toEqual(['proteina']);
     expect(by('verdura')).toMatchObject({ unknown: true, packages: 3 });
     expect(list.total).toBe(3 + 1 + 4 + 9);
+  });
+
+  it('frescos en tienda: fuera del pedido y en su propia lista semanal', () => {
+    const fresh: MealsPlan = { ...meals, products: meals.products.map((p) => (p.key === 'yogur' ? { ...p, buy: 'tienda' as const } : p)) };
+    expect(validatePlan('meals', fresh)).toEqual([]);
+    expect(validatePlan('meals', { ...fresh, store_every_days: 0 })).toContain('store_every_days: días ≥ 1');
+    expect(validatePlan('meals', { ...fresh, products: [{ ...fresh.products[0], buy: 'super' }] })).toContain(`Producto 1 (${fresh.products[0].name}): buy "pedido" o "tienda"`);
+    const stock = estimateStock(fresh, [move('pasta', 'count', 1000, '2027-01-11'), move('yogur', 'count', 1000, '2027-01-11')], '2027-01-11');
+    const order = shoppingList(fresh, stock, '2027-01-11', '2027-01-14');
+    expect(order.lines.map((l) => l.product.key)).not.toContain('yogur');
+    expect(order.total).toBe(3 + 4 + 9);
+    // Compra en tienda el sábado 16: cubre del 16 al 22; hasta el viernes se gastan 125 g al día (12-15).
+    const shop = storeList(fresh, stock, '2027-01-11', '2027-01-16');
+    expect(shop.until).toBe('2027-01-22');
+    expect(shop.lines.map((l) => l.product.key)).toEqual(['yogur']);
+    expect(shop.lines[0]).toMatchObject({ need: 875, atDelivery: 500, missing: 375 });
+    // Compra hoy: cubre también lo de hoy, así que se cuenta lo que había al empezar el día (1000 + 125 de hoy).
+    expect(storeList(fresh, stock, '2027-01-11', '2027-01-11').lines[0]).toMatchObject({ need: 875, atDelivery: 1125, missing: 0 });
   });
 });
