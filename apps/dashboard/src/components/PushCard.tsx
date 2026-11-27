@@ -29,15 +29,25 @@ function deviceLabel(): string {
   return 'ordenador';
 }
 
+/** Llama a la función de avisos; si falla, el mensaje dice en qué paso y con qué código, para poder arreglarlo. */
 async function callPush<T>(action: 'key' | 'test'): Promise<T> {
   const { data, error } = await supabase.functions.invoke('push', { body: { action } });
-  if (error) throw new Error('No se pudo contactar con el servicio de avisos.');
-  return data as T;
+  if (!error) return data as T;
+  const res = (error as { context?: unknown }).context;
+  if (res instanceof Response) {
+    const body = await res.clone().json().catch(() => null) as { step?: string; code?: string | null } | null;
+    const detail = [`error ${res.status}`, body?.step, body?.code ? `código ${body.code}` : null].filter(Boolean).join(' · ');
+    if (res.status === 401) throw new Error(`Tu sesión ha caducado: cierra sesión y vuelve a entrar (${detail}).`);
+    if (res.status === 403) throw new Error(`El servicio de avisos no te reconoce como dueño (${detail}).`);
+    throw new Error(`El servicio de avisos ha fallado (${detail}).`);
+  }
+  throw new Error('No se pudo contactar con el servicio de avisos: revisa la conexión.');
 }
 
 export function PushCard() {
   const settings = useAsync(() => rpc<Settings>('push_settings', {}), []);
   const [publicKey, setPublicKey] = useState<string | null>(null);
+  const [keyError, setKeyError] = useState<string | null>(null);
   const [endpoint, setEndpoint] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -47,7 +57,7 @@ export function PushCard() {
   useEffect(() => {
     if (!can) return;
     void navigator.serviceWorker.ready.then((r) => r.pushManager.getSubscription()).then((s) => setEndpoint(s?.endpoint ?? null)).catch(() => {});
-    void callPush<{ public_key: string }>('key').then((r) => setPublicKey(r.public_key)).catch(() => {});
+    void callPush<{ public_key: string }>('key').then((r) => setPublicKey(r.public_key)).catch((e: unknown) => setKeyError(explainError(e)));
   }, [can]);
 
   const s = settings.data;
@@ -56,11 +66,21 @@ export function PushCard() {
 
   async function enable() {
     setMsg(null);
-    if (!publicKey) { setMsg('El servicio de avisos no responde; prueba de nuevo en un momento.'); return; }
     setBusy(true);
     try {
+      // Si la clave no llegó al abrir la pantalla, se pide ahora. En el iPhone puede hacer falta un segundo toque.
+      let key = publicKey;
+      if (!key) {
+        key = (await callPush<{ public_key: string }>('key')).public_key;
+        setPublicKey(key);
+        setKeyError(null);
+      }
       const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromB64url(publicKey) as BufferSource });
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromB64url(key) as BufferSource })
+        .catch((e: unknown) => {
+          if (publicKey) throw e;
+          throw new Error('Listo para activar: toca otra vez «Activar avisos».');
+        });
       const j = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
       await rpc('save_push_subscription', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_label: deviceLabel() });
       setEndpoint(j.endpoint);
@@ -137,7 +157,7 @@ export function PushCard() {
         </>
       )}
       {others.length ? <p className="muted small">También activados en: {others.map((x) => x.label || 'otro dispositivo').join(', ')}.</p> : null}
-      {msg ? <p className="small" role="status">{msg}</p> : null}
+      {msg ? <p className="small" role="status">{msg}</p> : keyError && !here && can ? <p className="small muted" role="status">{keyError}</p> : null}
 
       {s ? (
         <ul className="reminders">
