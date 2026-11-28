@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Area, Entry, Field, Form } from '@shared/model.ts';
 import { readFileSync } from 'node:fs';
 import { handleBody, handleMessage, TOOLS, type Api, type OrderRow } from '../../../supabase/functions/mcp/handler.ts';
+import type { TripRow } from '@shared/trip.ts';
 import { parsePlanFile, type GymPeriod, type PlanRow, type WeekRow } from '@shared/plans.ts';
 
 const planFile = parsePlanFile(JSON.parse(readFileSync(new URL('../e2e/fixtures/planes-prueba.json', import.meta.url), 'utf8')));
@@ -16,7 +17,7 @@ const peso: Field = { id: 'fd1', form_id: 'fm1', key: 'peso', label: 'Peso', hel
 const e = (d: string, v: number): Entry => ({ id: `e-${d}`, form_id: 'fm1', area_id: 'a1', occurred_at: `${d}T06:00:00Z`, local_date: d, data: { peso: v },
   note: '', source: 'dashboard', quality: 'manual', supersedes_id: null, actor: 'owner', created_at: '' });
 
-interface Extra { plans?: PlanRow[]; weeks?: WeekRow[]; periods?: GymPeriod[]; moves?: { product: string; kind: 'count' | 'purchase' | 'adjust'; qty: number; occurred_at: string }[]; orders?: OrderRow[] }
+interface Extra { plans?: PlanRow[]; weeks?: WeekRow[]; periods?: GymPeriod[]; trips?: TripRow[]; moves?: { product: string; kind: 'count' | 'purchase' | 'adjust'; qty: number; occurred_at: string }[]; orders?: OrderRow[] }
 function fakeApi(entries: Entry[] = [], extra: Extra = {}) {
   const calls: { fn: string; args: Record<string, unknown> }[] = [];
   const api: Api = {
@@ -29,6 +30,7 @@ function fakeApi(entries: Entry[] = [], extra: Extra = {}) {
     plans: async () => extra.plans ?? [],
     weeks: async () => extra.weeks ?? [],
     gymPeriods: async () => extra.periods ?? [],
+    trips: async () => extra.trips ?? [],
     stockMoves: async () => extra.moves ?? [],
     orders: async () => extra.orders ?? [],
     rpc: async <T,>(fn: string, args: Record<string, unknown>) => {
@@ -196,6 +198,49 @@ describe('planes, horario y despensa', () => {
     await call(api, 'lifeos_set_gym_period', { delete_id: 'p1' });
     expect(calls.map((c) => c.fn)).toEqual(['save_gym_period', 'delete_gym_period']);
     expect(calls[0].args).toMatchObject({ p_gym: 'la_zona', p_from: '2027-02-01', p_to: '2027-02-02', p_note: 'visita', p_id: null });
+  });
+
+  it('viajes: vista previa sin guardar, crear con las reglas por defecto, choques y cancelar', async () => {
+    const t = planRows.find((r) => r.kind === 'training')!;
+    const viaje = { ...t, id: 'zona', version: t.version + 1, content: { ...(t.content as object), gym: 'la_zona', gym_name: 'La Zona' } };
+    const { api, calls } = withPlans({ plans: [...planRows, viaje] });
+    const args = { date_from: '2027-01-15', date_to: '2027-01-17', leave_time: '13:00', return_leave_time: '11:30', return_home_time: '18:30' };
+    const pre = (await call(api, 'lifeos_trip', args)).structuredContent as { saved: boolean; nights: number; short: boolean; gym: { slug: string } | null; away_dates: string[]; remote_dates: string[] };
+    expect(pre.saved).toBe(false);
+    expect(pre).toMatchObject({ nights: 2, short: true, gym: { slug: 'la_zona' } });
+    expect(pre.away_dates).toContain('2027-01-15');
+    expect(calls).toEqual([]);
+
+    const bad = await call(api, 'lifeos_trip', { date_from: '2027-01-17', date_to: '2027-01-15' });
+    expect(bad.isError).toBe(true);
+
+    const made = (await call(api, 'lifeos_set_trip', args)).structuredContent as { id: string };
+    expect(made.id).toBe('new-id');
+    expect(calls.map((c) => c.fn)).toEqual(['save_trip']);
+    expect(calls[0].args).toMatchObject({ p_request_id: '00000000-0000-4000-8000-000000000001', p_id: null });
+    expect(calls[0].args.p_trip).toMatchObject({ kind: 'espana', date_from: '2027-01-15', date_to: '2027-01-17', gym: 'la_zona' });
+
+    const noGym = await call(api, 'lifeos_set_trip', { ...args, gym: 'otro' });
+    expect(noGym.isError).toBe(true);
+    expect(noGym.content[0].text).toMatch(/No hay rutina/);
+
+    const id = '11111111-1111-4111-8111-111111111111';
+    const row: TripRow = { id, kind: 'espana', date_from: '2027-01-15', date_to: '2027-01-17', leave_time: '13:00', return_leave_time: '11:30', return_home_time: '18:30',
+      vacation_from: null, vacation_to: null, gym: 'la_zona', gym_opens: '07:00', commute_min: 15, gym_from: '2027-01-16', gym_to: '2027-01-17',
+      away_dates: ['2027-01-15', '2027-01-17'], remote_dates: [], night_dates: ['2027-01-16', '2027-01-17'], checklist: {}, note: '', status: 'planned' };
+    const withTrip = withPlans({ plans: [...planRows, viaje], trips: [row] });
+    const clash = await call(withTrip.api, 'lifeos_set_trip', { ...args, date_from: '2027-01-16' });
+    expect(clash.isError).toBe(true);
+    expect(clash.content[0].text).toMatch(/Choca con otro viaje/);
+    const list = (await call(withTrip.api, 'lifeos_trip')).structuredContent as { trips: { id: string; checklist: { key: string }[] }[] };
+    expect(list.trips.map((x) => x.id)).toEqual([id]);
+    expect(list.trips[0].checklist.map((c) => c.key)).toContain('maleta');
+    const day = (await call(withTrip.api, 'lifeos_agenda', { date: '2027-01-15' })).structuredContent as { away: boolean };
+    expect(day.away).toBe(true);
+
+    expect((await call(withTrip.api, 'lifeos_set_trip', { cancel_id: 'no-uuid' })).isError).toBe(true);
+    await call(withTrip.api, 'lifeos_set_trip', { cancel_id: id });
+    expect(withTrip.calls).toEqual([{ fn: 'cancel_trip', args: { p_id: id } }]);
   });
 
   it('despensa: lista de lo que falta y lo pedido cuenta como entrante', async () => {

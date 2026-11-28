@@ -427,3 +427,11 @@ html.has-toast body.focus { padding-bottom: calc(168px + env(safe-area-inset-bot
 .cat-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
 .check-line { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0; font-size: 0.92rem; }
 .entry-form .stack textarea, .entry-form .stack select { width: 100%; }
+
+/* Modo viaje */
+a.block-link { display: block; color: inherit; text-decoration: none; }
+.trip-days li { align-items: flex-start; }
+.trip-day { min-width: 74px; }
+.trip-day strong { text-transform: capitalize; }
+.trip-banner h2 { margin: 0; }
+.stack label input[type='time'], .row label input[type='time'] { min-width: 96px; }

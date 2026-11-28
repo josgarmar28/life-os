@@ -12,6 +12,7 @@ import type { Api, OrderRow } from './handler.ts';
 import { handleBody } from './handler.ts';
 import type { Area, Entry, Field, Form, Proposal } from '../_shared/model.ts';
 import type { GymPeriod, PlanRow, WeekRow } from '../_shared/plans.ts';
+import type { TripRow } from '../_shared/trip.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 // Clave pública: los proyectos nuevos solo tienen claves "publishable" (SUPABASE_PUBLISHABLE_KEYS,
@@ -78,6 +79,11 @@ function makeApi(db: SupabaseClient): Api {
     plans: async () => must<PlanRow[]>(await api.from('plans').select('*').order('version')),
     weeks: async () => must<WeekRow[]>(await api.from('weeks').select('week_start,telework,away,note').order('week_start')),
     gymPeriods: async () => must<GymPeriod[]>(await api.from('gym_periods').select('id,gym,date_from,date_to,note').order('date_from')),
+    // Tolerante: si la migración de viajes aún no está aplicada, la agenda sigue funcionando sin viajes.
+    async trips() {
+      const r = await api.from('trips').select('*').order('date_from');
+      return r.error ? [] : (r.data as TripRow[]);
+    },
     // Movimientos de despensa: suficiente para estimar (el recuento más reciente corta la historia anterior).
     stockMoves: async () => must(await api.from('stock_moves').select('product,kind,qty,occurred_at').order('occurred_at', { ascending: false }).limit(5000)),
     orders: async () => must<OrderRow[]>(await api.from('shopping_orders').select('id,status,delivery_date,items,total').order('created_at', { ascending: false }).limit(50)),
