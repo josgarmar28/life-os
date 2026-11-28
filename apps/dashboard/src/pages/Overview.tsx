@@ -6,6 +6,7 @@ import { Skeleton } from '../components/Skeleton';
 import { Link } from '../router';
 import { Sparkline } from '../components/Sparkline';
 import { NowCard } from './Schedule';
+import { TripBanner } from './Trip';
 
 /** Datos de los últimos 60 días de todas las áreas activas y su resumen por cuestionario. */
 function useSummaries() {
@@ -82,6 +83,7 @@ export function Overview() {
       </header>
 
       <NowCard />
+      <TripBanner />
 
       {s.pendingProposals ? (
         <Link to="/propuestas" className="banner">Claude tiene {s.pendingProposals} {s.pendingProposals === 1 ? 'propuesta' : 'propuestas'} para que decidas.</Link>
@@ -144,6 +146,7 @@ export function Overview() {
       ) : null}
 
       <Link to="/a" className="btn wide ghost">Todas las áreas y tendencias ›</Link>
+      <Link to="/viaje" className="btn wide ghost">✈️ Me voy a España ›</Link>
       {!areas.length && !s.loading ? (
         <p className="muted">No hay áreas activas. <Link to="/gestion">Crea la primera</Link>.</p>
       ) : null}

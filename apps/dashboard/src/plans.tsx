@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { localDate } from '@shared/stats.ts';
 import { gymForDate, HOME_GYM, planFor, type GymPeriod, type MealsPlan, type PlanRow, type SchedulePlan, type TrainingPlan, type WeekRow } from '@shared/plans.ts';
 import type { StockMove } from '@shared/shopping.ts';
+import { tripDayFor, type TripRow } from '@shared/trip.ts';
 import { api, fetchAll } from './supabase';
 import { isNetworkError } from './outbox';
 import { useStructure } from './data';
@@ -24,6 +25,7 @@ interface Data {
   periods: GymPeriod[];
   orders: OrderRow[];
   moves: StockMove[];
+  trips: TripRow[];
 }
 
 interface Ctx extends Data {
@@ -34,7 +36,7 @@ interface Ctx extends Data {
 }
 
 const KEY = 'lifeos.plans';
-const EMPTY: Data = { plans: [], weeks: [], periods: [], orders: [], moves: [] };
+const EMPTY: Data = { plans: [], weeks: [], periods: [], orders: [], moves: [], trips: [] };
 const PlansCtx = createContext<Ctx | null>(null);
 
 function readCache(): Data | null {
@@ -47,13 +49,15 @@ function readCache(): Data | null {
 }
 
 async function load(tz: string): Promise<Data> {
-  const [plans, weeks, periods, orders, moves] = await Promise.all([
+  const [plans, weeks, periods, orders, moves, trips] = await Promise.all([
     fetchAll<PlanRow>((a, b) => api().from('plans').select('*').order('version').range(a, b)),
     fetchAll<WeekRow>((a, b) => api().from('weeks').select('week_start,telework,away,note').order('week_start').range(a, b)),
     fetchAll<GymPeriod>((a, b) => api().from('gym_periods').select('id,gym,date_from,date_to,note').order('date_from').range(a, b)),
     fetchAll<OrderRow>((a, b) => api().from('shopping_orders').select('*').order('created_at', { ascending: false }).range(a, b), 100, 100),
     fetchAll<{ product: string; kind: StockMove['kind']; qty: number; occurred_at: string }>((a, b) =>
       api().from('stock_moves').select('product,kind,qty,occurred_at').order('occurred_at').range(a, b)),
+    // Si la migración de viajes aún no está aplicada, el resto de la app sigue funcionando sin viajes.
+    fetchAll<TripRow>((a, b) => api().from('trips').select('*').order('date_from').range(a, b)).catch(() => [] as TripRow[]),
   ]);
   return {
     plans,
@@ -61,6 +65,7 @@ async function load(tz: string): Promise<Data> {
     periods,
     orders,
     moves: moves.map((m) => ({ ...m, qty: Number(m.qty), local_date: localDate(new Date(m.occurred_at), tz) })),
+    trips,
   };
 }
 
@@ -114,6 +119,12 @@ export function usePlansFor(date: string) {
       meals: planFor<MealsPlan>(p.plans, 'meals', date),
     };
   }, [p.plans, p.periods, date]);
+}
+
+/** Lo que un viaje cambia en `date` (días fuera, vacaciones, gimnasio de allí), para la agenda. */
+export function useTripDay(date: string) {
+  const p = usePlans();
+  return useMemo(() => tripDayFor(p.trips, date), [p.trips, date]);
 }
 
 export function shortDate(date: string, opts: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short' }): string {

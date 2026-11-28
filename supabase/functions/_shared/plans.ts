@@ -38,6 +38,26 @@ export interface ScheduleBlock {
   /** Solo el primer día de teletrabajo de la semana que esté en esta lista (p. ej. el lote 3, X o J). */
   first_telework_in?: Weekday[];
   link?: BlockLink;
+  /** Solo estando en casa: se oculta en los días fuera de casa (autobuses, colada, limpieza, lotes…). */
+  home_only?: boolean;
+  /** Trabajo: se oculta en vacaciones y en los días de viaje (no en el teletrabajo desde otro sitio). */
+  work?: boolean;
+  /** Papel del bloque para el modo viaje: el despertar, el trayecto al gimnasio y la sesión se recolocan según el gimnasio de allí. */
+  role?: BlockRole;
+}
+
+export type BlockRole = 'wake' | 'to_gym' | 'training';
+const BLOCK_ROLES: BlockRole[] = ['wake', 'to_gym', 'training'];
+
+/** Lo que el modo viaje cambia en un día concreto (lo calcula trip.ts a partir de los viajes). */
+export interface TripDay {
+  /** Día fuera de casa: no gasta despensa y se ocultan los bloques "solo en casa" y los de cocina. */
+  away: boolean;
+  vacation: boolean;
+  /** Día de ida o de vuelta (viaje, no teletrabajo). */
+  travel: boolean;
+  /** Gimnasio de allí: hora de apertura y minutos de trayecto, para recolocar despertar, trayecto y sesión. */
+  gym?: { opens: string; commute_min: number };
 }
 
 export interface SchedulePlan {
@@ -252,6 +272,9 @@ export function validatePlan(kind: PlanKind, content: unknown): string[] {
       if (b.end !== undefined && (!isStr(b.end) || !TIME.test(b.end) || b.end < String(b.start))) e.push(`${at} (${String(b.title)}): hora de fin HH:MM posterior al inicio`);
       if (b.on !== undefined && b.on !== 'oficina' && b.on !== 'teletrabajo') e.push(`${at}: "on" es oficina o teletrabajo`);
       if (b.first_telework_in !== undefined && !(Array.isArray(b.first_telework_in) && b.first_telework_in.every(isDay))) e.push(`${at}: first_telework_in son días 1-7`);
+      if (b.home_only !== undefined && typeof b.home_only !== 'boolean') e.push(`${at} (${String(b.title)}): home_only es verdadero o falso`);
+      if (b.work !== undefined && typeof b.work !== 'boolean') e.push(`${at} (${String(b.title)}): work es verdadero o falso`);
+      if (b.role !== undefined && !BLOCK_ROLES.includes(b.role as BlockRole)) e.push(`${at} (${String(b.title)}): role es wake, to_gym o training`);
       if (b.link !== undefined) {
         const l = b.link as Record<string, unknown>;
         const ok = isObj(l) && (l.kind === 'training' || l.kind === 'shopping' || (l.kind === 'meal' && isStr(l.slot))
@@ -488,13 +511,18 @@ export interface AgendaInput {
   meals: MealsPlan | null;
   weeks: WeekRow[];
   deliveries?: { id: string; delivery_date: string; items: unknown[]; status: string }[];
+  /** Lo que un viaje cambia ese día (ver tripDayFor en trip.ts). */
+  trip?: TripDay | null;
 }
+
+const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+const fromMin = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 export function agendaFor(i: AgendaInput): { items: AgendaItem[]; telework: boolean; away: boolean; training: TrainingDay | null; meals: MealDay | null } {
   const wd = isoWeekday(i.date);
   const ws = weekSettings(i.weeks, i.schedule, i.date);
   const telework = ws.telework.includes(wd);
-  const away = ws.away.includes(wd);
+  const away = ws.away.includes(wd) || Boolean(i.trip?.away);
   const training = i.training?.days.find((d) => d.weekday === wd) ?? null;
   const mealsDay = i.meals?.days.find((d) => d.weekday === wd) ?? null;
   const recipe = (k: string) => i.meals?.recipes.find((r) => r.key === k);
@@ -508,6 +536,9 @@ export function agendaFor(i: AgendaInput): { items: AgendaItem[]; telework: bool
       const first = [...ws.telework].sort().find((d) => b.first_telework_in!.includes(d));
       if (first !== wd) continue;
     }
+    // Fuera de casa no hay cocina por lotes ni revisión de compra, ni lo marcado "solo en casa".
+    if (away && (b.home_only || b.link?.kind === 'cook' || b.link?.kind === 'shopping')) continue;
+    if (b.work && i.trip && (i.trip.vacation || i.trip.travel)) continue;
     const it: AgendaItem = { id: b.id, start: b.start, end: b.end, title: b.title, detail: b.detail, icon: b.icon, link: b.link };
     if (b.link?.kind === 'training' && training) it.training = training;
     if (b.link?.kind === 'meal' && mealsDay) {
@@ -528,6 +559,7 @@ export function agendaFor(i: AgendaInput): { items: AgendaItem[]; telework: bool
     }
     items.push(it);
   }
+  if (i.trip?.gym) shiftForGym(items, i.schedule?.blocks ?? [], wd, i.trip.gym);
   for (const o of i.deliveries ?? []) {
     if (o.status === 'ordered' && o.delivery_date === i.date) {
       items.push({ id: `pedido-${o.id}`, start: '09:00', title: 'Recibir el pedido', icon: '📦', link: { kind: 'shopping' }, delivery: { orderId: o.id, items: o.items.length } });
@@ -535,6 +567,32 @@ export function agendaFor(i: AgendaInput): { items: AgendaItem[]; telework: bool
   }
   items.sort((a, b) => a.start.localeCompare(b.start) || (a.end ?? '').localeCompare(b.end ?? ''));
   return { items, telework, away, training, meals: mealsDay };
+}
+
+/**
+ * En el gimnasio de otro sitio (horario de apertura y trayecto propios): la sesión empieza cuando abre,
+ * el trayecto la precede y el despertar mantiene su distancia con el trayecto del horario de casa.
+ * Solo se mueven los bloques marcados con `role` (y la sesión, que ya se reconoce por su enlace).
+ */
+function shiftForGym(items: AgendaItem[], blocks: ScheduleBlock[], wd: Weekday, gym: { opens: string; commute_min: number }) {
+  const opens = toMin(gym.opens);
+  const homeToGym = blocks.find((b) => b.role === 'to_gym' && b.days.includes(wd));
+  const homeWake = blocks.find((b) => b.role === 'wake' && b.days.includes(wd));
+  const wakeGap = homeToGym && homeWake ? toMin(homeToGym.start) - toMin(homeWake.start) : null;
+  for (const it of items) {
+    if (it.link?.kind === 'training') {
+      const dur = it.end ? toMin(it.end) - toMin(it.start) : null;
+      it.start = gym.opens;
+      it.end = dur !== null && dur > 0 ? fromMin(opens + dur) : undefined;
+    } else if (homeToGym && it.id === homeToGym.id) {
+      it.start = fromMin(opens - gym.commute_min);
+      it.end = gym.opens;
+      it.title = 'Desplazamiento al gimnasio';
+      it.detail = `${gym.commute_min} min`;
+    } else if (homeWake && it.id === homeWake.id && wakeGap !== null) {
+      it.start = fromMin(Math.max(0, opens - gym.commute_min - wakeGap));
+    }
+  }
 }
 
 /** Lo que toca ahora y lo siguiente, con la hora local "HH:MM". */

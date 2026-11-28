@@ -18,6 +18,7 @@ import { Schedule } from './pages/Schedule';
 import { Training } from './pages/Training';
 import { Shopping } from './pages/Shopping';
 import { More } from './pages/More';
+import { TripDetail, TripForm, TripList } from './pages/Trip';
 import { ClosetPage } from './wardrobe/ClosetPage';
 import { GarmentPage } from './wardrobe/GarmentPage';
 import { LaundryPage } from './wardrobe/LaundryPage';
@@ -80,13 +81,13 @@ export function App() {
   return (
     <StructureProvider>
       <PlansProvider>
-        <Shell path={loc.path} />
+        <Shell path={loc.path} loc={loc} />
       </PlansProvider>
     </StructureProvider>
   );
 }
 
-function Shell({ path }: { path: string }) {
+function Shell({ path, loc }: { path: string; loc: { search: string } }) {
   const s = useStructure();
   const plans = usePlans();
   // Al volver a la app tras un rato (el iPhone la deja en segundo plano toda la noche), se recalcula
@@ -138,12 +139,16 @@ function Shell({ path }: { path: string }) {
   else if (path === '/armario/lavado') page = <LaundryPage />;
   else if (path === '/armario/armarios') page = <ClosetsManage />;
   else if ((m = match('/armario/p/:id', path))) page = <GarmentPage key={path} id={m.id} />;
+  else if (path === '/viaje') page = <TripList />;
+  else if (path === '/viaje/nuevo') page = <TripForm key={`nuevo${loc.search}`} search={loc.search} />;
+  else if ((m = match('/viaje/:id/editar', path))) page = <TripForm key={path} id={m.id} />;
+  else if ((m = match('/viaje/:id', path))) page = <TripDetail key={path} id={m.id} />;
   else if (path === '/mas') page = <More />;
   else if (path === '/propuestas') page = <Proposals />;
   else if (path === '/ajustes') page = <Settings />;
   else page = <main><p>Página no encontrada.</p><Link to="/">Ir al inicio</Link></main>;
 
-  const MORE = ['/mas', '/semana', '/armario', '/a', '/gestion', '/propuestas', '/ajustes'];
+  const MORE = ['/mas', '/semana', '/viaje', '/armario', '/a', '/gestion', '/propuestas', '/ajustes'];
   const under = (to: string) => path === to || path.startsWith(`${to}/`);
   const isOn = (to: string) => (to === '/' ? path === '/' : to === '/mas' ? MORE.some(under) : under(to));
   const tab = (to: string, label: string, badge?: number) => (

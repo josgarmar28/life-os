@@ -11,6 +11,10 @@ import {
   agendaFor, awayDates, gymForDate, gymOf, HOME_GYM, isoWeekday, localTime, nowAndNext, PLAN_LABEL, planFor, planSummary, trainingGyms, validatePlan, weekSettings, WEEKDAY_NAME,
   type GymPeriod, type MealsPlan, type PlanKind, type PlanRow, type SchedulePlan, type TrainingPlan, type WeekRow,
 } from '../_shared/plans.ts';
+import {
+  checklistStatus, deriveTrip, planOfRow, tripDayFor, tripPayload, tripWarnings, upcomingTrips, validateTripInput,
+  type TripInput, type TripPlan, type TripRow,
+} from '../_shared/trip.ts';
 import { boughtInStore, estimateStock, formatQty, shoppingList, storeList, type StockMove } from '../_shared/shopping.ts';
 import { weekStart } from '../_shared/stats.ts';
 
@@ -26,6 +30,7 @@ export const INSTRUCTIONS = [
   'Para revisiones (semana, tendencias, cómo se influyen sueño, entreno, nutrición, estrés y agenda) usa lifeos_week y lifeos_overview antes de opinar, y separa lo que dicen los datos de lo que infieres.',
   'Él registra en el dashboard; tú registras solo cuando te lo pide expresamente en el chat.',
   'Horario, rutina y menú son planes versionados: léelos con lifeos_agenda y lifeos_plan; para cambiarlos, propone una versión nueva con lifeos_propose_change (kind plan.save) y él la aprueba.',
+  'Los viajes a España (o cuando viene ella) se leen con lifeos_trip y solo se crean o cancelan con lifeos_set_trip cuando él te lo pide en el chat: preparan gimnasio, días fuera, teletrabajo y checklist de golpe.',
   'La despensa se estima con el menú; lifeos_pantry da el stock y la lista de lo que falta.',
   'Las fotos corporales y de pelo no existen aquí y no deben subirse a ningún sitio.',
 ].join(' ');
@@ -40,6 +45,7 @@ export interface Api {
   plans(): Promise<PlanRow[]>;
   weeks(): Promise<WeekRow[]>;
   gymPeriods(): Promise<GymPeriod[]>;
+  trips(): Promise<TripRow[]>;
   stockMoves(): Promise<{ product: string; kind: StockMove['kind']; qty: number; occurred_at: string }[]>;
   orders(): Promise<OrderRow[]>;
   rpc<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T>;
@@ -93,6 +99,59 @@ const str = (v: unknown, name: string, required = false): string | undefined => 
   if (typeof v !== 'string') throw new ToolError(`"${name}" debe ser texto.`);
   return v;
 };
+/** Campos de un viaje en el esquema de las herramientas. */
+function tripProps(): Record<string, unknown> {
+  const date = (d: string) => ({ type: 'string', description: d });
+  const time = (d: string) => ({ type: 'string', description: `${d} (HH:MM)` });
+  return {
+    kind: { type: 'string', enum: ['espana', 'visita'], description: '"espana" = va él a España (por defecto); "visita" = viene ella.' },
+    date_from: date('Día de salida de Pully (o de llegada de ella), YYYY-MM-DD.'),
+    date_to: date('Día de llegada a Pully (o de salida de ella), YYYY-MM-DD.'),
+    leave_time: time('Hora de salida de Pully / de llegada de ella'),
+    return_leave_time: time('Hora de salida de España (solo "espana")'),
+    return_home_time: time('Hora de llegada a Pully / de salida de ella'),
+    vacation_from: date('Primer día de vacaciones (por defecto ninguno: trabaja en remoto).'),
+    vacation_to: date('Último día de vacaciones.'),
+    gym: { type: 'string', description: 'Slug del gimnasio de allí (por defecto "la_zona" en "espana").' },
+    gym_opens: time('Hora a la que abre el gimnasio (por defecto 07:00)'),
+    commute_min: { type: 'integer', minimum: 0, maximum: 120, description: 'Minutos de trayecto a casa del gimnasio (por defecto 15).' },
+    note: { type: 'string' },
+  };
+}
+
+function tripInput(args: Record<string, unknown>): TripInput {
+  const kind = (str(args.kind, 'kind') ?? 'espana') as TripInput['kind'];
+  if (kind !== 'espana' && kind !== 'visita') throw new ToolError('"kind" debe ser "espana" o "visita".');
+  const from = str(args.date_from, 'date_from', true)!;
+  const to = str(args.date_to, 'date_to', true)!;
+  if (!isDate(from) || !isDate(to)) throw new ToolError('"date_from" y "date_to" deben ser YYYY-MM-DD.');
+  const vf = str(args.vacation_from, 'vacation_from');
+  const vt = str(args.vacation_to, 'vacation_to');
+  if ((vf && !isDate(vf)) || (vt && !isDate(vt))) throw new ToolError('Las vacaciones deben ser YYYY-MM-DD.');
+  return {
+    kind, date_from: from, date_to: to,
+    leave_time: str(args.leave_time, 'leave_time') ?? null,
+    return_leave_time: str(args.return_leave_time, 'return_leave_time') ?? null,
+    return_home_time: str(args.return_home_time, 'return_home_time') ?? null,
+    vacation_from: vf ?? null, vacation_to: vt ?? null,
+    gym: kind === 'espana' ? str(args.gym, 'gym') ?? 'la_zona' : null,
+    gym_opens: str(args.gym_opens, 'gym_opens') ?? null,
+    commute_min: args.commute_min === undefined ? null : Number(args.commute_min),
+    note: str(args.note, 'note') ?? '',
+  };
+}
+
+function summarize(p: TripPlan) {
+  return {
+    nights: p.nights, short: p.short, comeback: p.comeback,
+    away_dates: p.away_dates, remote_dates: p.remote_dates, night_dates: p.night_dates, night_tag: p.night_tag,
+    gym: p.gym_from && p.gym_to ? { slug: p.input.gym, from: p.gym_from, to: p.gym_to } : null,
+    days: p.days.map((d) => ({ date: d.date, role: d.role, away: d.away, vacation: d.vacation, remote: d.remote, gym: d.gym })),
+    checklist: p.checklist.map((c) => ({ key: c.key, label: c.label, due: c.due })),
+    notes: p.notes,
+  };
+}
+
 const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
 const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 
@@ -274,13 +333,13 @@ export const TOOLS: Tool[] = [
       const today = localDate(now, tz);
       const date = str(args.date, 'date') ?? today;
       if (!isDate(date)) throw new ToolError('"date" debe ser YYYY-MM-DD.');
-      const [plans, weeks, orders, periods] = await Promise.all([api.plans(), api.weeks(), api.orders(), api.gymPeriods()]);
+      const [plans, weeks, orders, periods, trips] = await Promise.all([api.plans(), api.weeks(), api.orders(), api.gymPeriods(), api.trips()]);
       const gym = gymForDate(periods, date);
       const schedule = planFor<SchedulePlan>(plans, 'schedule', date);
       const training = planFor<TrainingPlan>(plans, 'training', date, gym) ?? (gym !== HOME_GYM ? planFor<TrainingPlan>(plans, 'training', date) : null);
       const meals = planFor<MealsPlan>(plans, 'meals', date);
       if (!schedule && !training && !meals) return { date, note: 'Aún no hay planes importados en el dashboard.' };
-      const a = agendaFor({ date, schedule: schedule?.content ?? null, training: training?.content ?? null, meals: meals?.content ?? null, weeks, deliveries: orders });
+      const a = agendaFor({ date, schedule: schedule?.content ?? null, training: training?.content ?? null, meals: meals?.content ?? null, weeks, deliveries: orders, trip: tripDayFor(trips, date) });
       const nn = date === today ? nowAndNext(a.items, localTime(now, tz)) : null;
       const preview = [schedule, training, meals].filter((x) => x?.preview).map((x) => `${PLAN_LABEL[x!.row.kind]} empieza el ${x!.row.valid_from}`);
       return {
@@ -482,6 +541,73 @@ export const TOOLS: Tool[] = [
       const id = await api.rpc<string>('save_gym_period', { p_gym: gym, p_from: from, p_to: to, p_note: str(args.note, 'note') ?? '', p_id: str(args.id, 'id') ?? null });
       const today = localDate(now, await api.timezone());
       return { id, gym, from, to, note: 'Esos días el entreno y la agenda usan la rutina de ese gimnasio.', ...(to < today ? { warning: 'El periodo ya ha pasado.' } : {}) };
+    },
+  },
+  {
+    name: 'lifeos_trip',
+    title: 'Viajes a España',
+    description: 'Sin argumentos: viajes próximos con su checklist (maleta, burrito, pedido de Migros…) y qué cambia cada día. Con "date_from" y "date_to" (y las horas): vista previa de un viaje SIN guardar, con exactamente lo que le saldría en el dashboard (días fuera de casa, gimnasio de allí, teletrabajo, noches, vuelta normal o exprés, avisos). Para crearlo, usa lifeos_set_trip cuando él lo pida.',
+    inputSchema: { type: 'object', properties: tripProps(), additionalProperties: false },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    async run(args, { api, now }) {
+      const tz = await api.timezone();
+      const today = localDate(now, tz);
+      const trips = await api.trips();
+      if (args.date_from === undefined && args.date_to === undefined) {
+        const next = upcomingTrips(trips, today);
+        return {
+          today,
+          trips: next.map((t) => ({
+            ...summarize(planOfRow(t)),
+            id: t.id, kind: t.kind, from: t.date_from, to: t.date_to, gym: t.gym ? { slug: t.gym, from: t.gym_from, to: t.gym_to } : null,
+            away_dates: t.away_dates, remote_dates: t.remote_dates, night_dates: t.night_dates,
+            checklist: checklistStatus(t, today).map((c) => ({ key: c.key, label: c.label, detail: c.detail, due: c.due, done: c.done, due_now: c.due_now })),
+          })),
+          ...(next.length ? {} : { note: 'No hay viajes próximos.' }),
+        };
+      }
+      const input = tripInput(args);
+      const errors = validateTripInput(input);
+      if (errors.length) throw new ToolError(errors.join(' '));
+      const plan = deriveTrip(input);
+      const [plans, orders, periods] = await Promise.all([api.plans(), api.orders(), api.gymPeriods()]);
+      const schedule = planFor<SchedulePlan>(plans, 'schedule', input.date_from);
+      const warnings = tripWarnings(plan, { trips, periods, orders, schedule: schedule?.content ?? null, gyms: trainingGyms(plans, input.date_from).map((g) => g.gym) });
+      return { preview: true, saved: false, ...summarize(plan), warnings: [...plan.warnings, ...warnings] };
+    },
+  },
+  {
+    name: 'lifeos_set_trip',
+    title: 'Crear o cancelar un viaje',
+    description: 'Cuando él te lo pide en el chat: crea un viaje (mismos campos que lifeos_trip; aplica gimnasio de allí, días fuera, teletrabajo y noches de una vez y de forma atómica, con las reglas por defecto) o lo cancela con "cancel_id" (deshace solo lo que el viaje añadió, sin tocar lo que él cambió a mano). Antes enséñale la vista previa de lifeos_trip. Si falta la hora de salida, pídesela: no la inventes.',
+    inputSchema: {
+      type: 'object',
+      properties: { ...tripProps(), cancel_id: { type: 'string', description: 'Id del viaje a cancelar (sale en lifeos_trip).' }, request_id: { type: 'string', description: 'UUID para que reintentar no duplique.' } },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    async run(args, { api, newId }) {
+      const cancel = str(args.cancel_id, 'cancel_id');
+      if (cancel) {
+        if (!isUuid(cancel)) throw new ToolError('"cancel_id" debe ser un UUID de lifeos_trip.');
+        await api.rpc('cancel_trip', { p_id: cancel });
+        return { cancelled: cancel, note: 'Se ha deshecho lo que añadió el viaje; lo que cambiaste a mano se queda.' };
+      }
+      const input = tripInput(args);
+      const errors = validateTripInput(input);
+      if (errors.length) throw new ToolError(errors.join(' '));
+      const plan = deriveTrip(input);
+      const [plans, weeks, trips, orders, periods] = await Promise.all([api.plans(), api.weeks(), api.trips(), api.orders(), api.gymPeriods()]);
+      const schedule = planFor<SchedulePlan>(plans, 'schedule', input.date_from);
+      const warnings = tripWarnings(plan, { trips, periods, orders, schedule: schedule?.content ?? null, gyms: trainingGyms(plans, input.date_from).map((g) => g.gym) });
+      if (warnings.some((w) => /^Choca con/.test(w))) throw new ToolError(warnings.filter((w) => /^Choca con/.test(w)).join(' '));
+      if (plan.gym_from && input.gym && !trainingGyms(plans, input.date_from).some((g) => g.gym === input.gym)) {
+        throw new ToolError(`No hay rutina para el gimnasio "${input.gym}". Gimnasios con rutina: ${trainingGyms(plans, input.date_from).map((g) => g.gym).join(', ') || 'ninguno'}.`);
+      }
+      const requestId = str(args.request_id, 'request_id') ?? newId();
+      if (!isUuid(requestId)) throw new ToolError('"request_id" debe ser un UUID.');
+      const id = await api.rpc<string>('save_trip', { p_trip: tripPayload(plan, weeks, schedule?.content ?? null), p_request_id: requestId, p_id: null });
+      return { id, request_id: requestId, ...summarize(plan), warnings: [...plan.warnings, ...warnings] };
     },
   },
   {

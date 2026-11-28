@@ -7,7 +7,7 @@ import {
 import { useStructure } from '../data';
 import { Link } from '../router';
 import { explainError, rpc } from '../supabase';
-import { shortDate, usePlans, usePlansFor } from '../plans';
+import { shortDate, usePlans, usePlansFor, useTripDay } from '../plans';
 
 export function Schedule({ date: initial }: { date?: string }) {
   const s = useStructure();
@@ -15,10 +15,11 @@ export function Schedule({ date: initial }: { date?: string }) {
   const today = localDate(new Date(), s.timezone);
   const date = initial ?? today;
   const plans = usePlansFor(date);
+  const trip = useTripDay(date);
   const ws = weekStart(date);
   const agenda = agendaFor({
     date, schedule: plans.schedule?.content ?? null, training: plans.training?.content ?? null,
-    meals: plans.meals?.content ?? null, weeks: p.weeks, deliveries: p.orders,
+    meals: plans.meals?.content ?? null, weeks: p.weeks, deliveries: p.orders, trip,
   });
   const current = date === today ? nowAndNext(agenda.items, localTime(new Date(), s.timezone)).now : null;
   // Al abrir el día de hoy, el bloque actual queda a la vista (no las 05:00).
@@ -209,10 +210,11 @@ export function NowCard() {
   const p = usePlans();
   const today = localDate(new Date(), s.timezone);
   const plans = usePlansFor(today);
+  const trip = useTripDay(today);
   if (!plans.schedule) return null;
   const agenda = agendaFor({
     date: today, schedule: plans.schedule.content, training: plans.training?.content ?? null,
-    meals: plans.meals?.content ?? null, weeks: p.weeks, deliveries: p.orders,
+    meals: plans.meals?.content ?? null, weeks: p.weeks, deliveries: p.orders, trip,
   });
   const { now, next } = nowAndNext(agenda.items, localTime(new Date(), s.timezone));
   const shown = [now, next].filter((x): x is AgendaItem => Boolean(x));
